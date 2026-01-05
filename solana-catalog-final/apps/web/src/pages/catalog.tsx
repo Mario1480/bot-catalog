@@ -3,211 +3,104 @@ import { AppHeader } from "../components/AppHeader";
 import { WalletConnect } from "../components/WalletConnect";
 import { apiFetch } from "../lib/api";
 
+type AnyObj = Record<string, any>;
+
 type Product = {
   id: string;
+
+  // common naming variants
   name?: string;
   title?: string;
+
   description?: string;
 
-  imageUrl?: string; // normalized
-  linkUrl?: string;  // normalized
+  imageUrl?: string;
+  image_url?: string;
+  image?: string;
+  imagePath?: string;
+  image_path?: string;
+  upload?: string;
 
-  fields?: Record<string, any>; // normalized
+  linkUrl?: string;
+  link_url?: string;
+  link?: string;
+  url?: string;
+
+  fields?: AnyObj;
+  extraFields?: AnyObj;
+  metadata?: AnyObj;
+
   tags?: string[];
   category?: string;
-  createdAt?: string;
 
-  _raw?: any; // debug / safety
+  createdAt?: string;
+  created_at?: string;
 };
 
 type SortKey = "newest" | "az" | "za";
 
-const isObj = (v: any) => v && typeof v === "object" && !Array.isArray(v);
-
-function toStr(v: any) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
-}
-
-function safeJsonParse(s: string) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Find first "string-ish" value in object by trying:
- * - exact keys
- * - regex search in all keys (case-insensitive)
- * - nested objects 1-level deep
- */
-function findString(raw: any, exactKeys: string[], keyRegex?: RegExp): string {
-  if (!raw) return "";
-
-  // 1) exact keys
-  for (const k of exactKeys) {
-    const v = raw?.[k];
-    const s = toStr(v);
-    if (s) return s;
-  }
-
-  // 2) regex over keys (top-level)
-  if (keyRegex && isObj(raw)) {
-    for (const [k, v] of Object.entries(raw)) {
-      if (!keyRegex.test(k)) continue;
-      const s = toStr(v);
-      if (s) return s;
-    }
-  }
-
-  // 3) nested 1-level
-  if (keyRegex && isObj(raw)) {
-    for (const v of Object.values(raw)) {
-      if (!isObj(v)) continue;
-      for (const [k2, v2] of Object.entries(v)) {
-        if (!keyRegex.test(k2)) continue;
-        const s = toStr(v2);
-        if (s) return s;
-      }
-    }
-  }
-
-  return "";
-}
-
-function fieldsToRecord(v: any): Record<string, any> {
-  if (!v) return {};
-
-  // already object
-  if (isObj(v)) return v as Record<string, any>;
-
-  // json string
-  if (typeof v === "string") {
-    const parsed = safeJsonParse(v.trim());
-    if (parsed) return fieldsToRecord(parsed);
-    return {};
-  }
-
-  // array like [{key,value}] or [{name,value}]
-  if (Array.isArray(v)) {
-    const out: Record<string, any> = {};
-    for (const item of v) {
-      if (!item) continue;
-      const k = toStr(item.key ?? item.name ?? item.field ?? item.label);
-      const val = item.value ?? item.val ?? item.data;
-      if (k) out[k] = val;
-    }
-    return out;
-  }
-
-  return {};
-}
-
-function normalizeProduct(raw: any): Product {
-  const id = toStr(raw?.id ?? raw?._id ?? raw?.uuid ?? raw?.productId);
-
-  const title = toStr(raw?.name ?? raw?.title ?? raw?.product_name ?? raw?.productTitle) || "Untitled";
-  const desc = toStr(raw?.description ?? raw?.desc ?? raw?.details ?? raw?.text ?? raw?.content);
-
-  // fields / metadata / extra fields
-  const fieldsCandidate =
-    raw?.fields ??
-    raw?.extraFields ??
-    raw?.extra_fields ??
-    raw?.metadata ??
-    raw?.meta ??
-    raw?.attributes ??
-    raw?.data ??
-    {};
-
-  const fields = fieldsToRecord(fieldsCandidate);
-
-  // image string detection (many possible keys)
-  const imageUrl =
-    findString(
-      raw,
-      ["imageUrl", "image_url", "image", "imagePath", "image_path", "thumbnail", "thumb", "photo", "picture", "img"],
-      /image|img|thumb|thumbnail|photo|picture/i
-    ) ||
-    findString(
-      fields,
-      ["imageUrl", "image_url", "image", "imagePath", "image_path", "thumbnail", "thumb", "photo", "picture", "img"],
-      /image|img|thumb|thumbnail|photo|picture/i
-    );
-
-  // link string detection (many possible keys)
-  const linkUrl =
-    findString(
-      raw,
-      ["linkUrl", "link_url", "link", "url", "website", "web", "href", "checkout", "shop", "productUrl", "product_url"],
-      /link|url|website|href|shop|checkout/i
-    ) ||
-    findString(
-      fields,
-      ["linkUrl", "link_url", "link", "url", "website", "web", "href", "checkout", "shop", "productUrl", "product_url"],
-      /link|url|website|href|shop|checkout/i
-    );
-
-  // createdAt
-  const createdAt = toStr(raw?.createdAt ?? raw?.created_at ?? raw?.created ?? raw?.createdOn ?? raw?.created_on);
-
-  // tags/category
-  const tagsRaw = raw?.tags ?? fields?.tags;
-  const tags =
-    Array.isArray(tagsRaw)
-      ? tagsRaw.map((t: any) => toStr(t)).filter(Boolean)
-      : typeof tagsRaw === "string"
-        ? tagsRaw.split(",").map((x: string) => x.trim()).filter(Boolean)
-        : [];
-
-  const category = toStr(raw?.category ?? raw?.cat ?? fields?.category);
-
-  return {
-    id: id || title, // fallback (avoid empty key crashes)
-    name: title,
-    title: title,
-    description: desc,
-    imageUrl: toStr(imageUrl),
-    linkUrl: toStr(linkUrl),
-    fields,
-    tags,
-    category,
-    createdAt: createdAt || undefined,
-    _raw: raw,
-  };
-}
-
-function normalizeText(s: any) {
-  return toStr(s).toLowerCase().trim();
+function normalizeText(v: any) {
+  return (v ?? "").toString().toLowerCase().trim();
 }
 
 function getProductName(p: Product) {
   return (p.name || p.title || "Untitled").toString();
 }
 
-function getImageSrc(p: Product) {
-  const u = toStr(p.imageUrl);
+function pickFirstString(...vals: any[]) {
+  for (const v of vals) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+function ensureUploadsPath(raw: string) {
+  const u = (raw || "").trim();
   if (!u) return "";
-
-  // absolute
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
-
-  // already "/uploads/.."
-  if (u.startsWith("/")) return u;
-
-  // "uploads/..."
-  if (u.startsWith("uploads/")) return `/${u}`;
-
-  // filename
+  if (u.startsWith("/uploads/")) return u;
+  if (u.startsWith("/")) return u; // allow absolute site path
   return `/uploads/${u}`;
 }
 
-function getLink(p: Product) {
-  const u = toStr(p.linkUrl);
+function ensureLink(raw: string) {
+  const u = (raw || "").trim();
   if (!u) return "";
-  return u;
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  if (u.startsWith("www.")) return `https://${u}`;
+  // relative path? allow it:
+  if (u.startsWith("/")) return u;
+  // default:
+  return `https://${u}`;
+}
+
+function getFields(p: Product): AnyObj {
+  const a = (p.fields && typeof p.fields === "object") ? p.fields : null;
+  const b = (p.extraFields && typeof p.extraFields === "object") ? p.extraFields : null;
+  const c = (p.metadata && typeof p.metadata === "object") ? p.metadata : null;
+  return (a || b || c || {}) as AnyObj;
+}
+
+function getCategory(p: Product) {
+  const f = getFields(p);
+  return (p.category ?? f.category ?? "").toString().trim();
+}
+
+function getTags(p: Product): string[] {
+  const f = getFields(p);
+  const t1 = Array.isArray(p.tags) ? p.tags : [];
+  const t2 = Array.isArray(f.tags) ? f.tags : [];
+  return [...t1, ...t2].map((x) => (x ?? "").toString().trim()).filter(Boolean);
+}
+
+function getImageSrc(p: Product) {
+  const raw = pickFirstString(p.imageUrl, p.image_url, p.image, p.imagePath, p.image_path, p.upload);
+  return ensureUploadsPath(raw);
+}
+
+function getLinkUrl(p: Product) {
+  const raw = pickFirstString(p.linkUrl, p.link_url, p.link, p.url);
+  return ensureLink(raw);
 }
 
 export default function CatalogPage() {
@@ -217,7 +110,6 @@ export default function CatalogPage() {
 
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
-
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedTag, setSelectedTag] = useState<string>("All");
 
@@ -233,13 +125,15 @@ export default function CatalogPage() {
         setLoading(true);
         setErr("");
 
-        const out = await apiFetch("/products", { method: "GET" }, jwt || undefined);
-        const items = Array.isArray(out) ? out : out?.items || out?.products || [];
+        const out = await apiFetch("/products", { method: "GET" }, jwt);
 
-        setProducts((items || []).map(normalizeProduct));
+        const items = Array.isArray(out) ? out : (out?.items || out?.products || []);
+        setProducts(items);
       } catch (e: any) {
-        setErr(e?.message || "Failed to load products");
-        if ((e?.message || "").toLowerCase().includes("unauthorized")) {
+        const msg = e?.message || "Failed to load products";
+        setErr(msg);
+
+        if (msg.toLowerCase().includes("unauthorized")) {
           localStorage.removeItem("user_jwt");
           window.location.href = "/";
         }
@@ -252,7 +146,7 @@ export default function CatalogPage() {
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const p of products) {
-      const c = toStr(p.category || p.fields?.category);
+      const c = getCategory(p);
       if (c) set.add(c);
     }
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -261,16 +155,7 @@ export default function CatalogPage() {
   const tags = useMemo(() => {
     const set = new Set<string>();
     for (const p of products) {
-      const t1: string[] = Array.isArray(p.tags) ? p.tags : [];
-      const t2raw = p.fields?.tags;
-      const t2: string[] =
-        Array.isArray(t2raw) ? t2raw.map((x: any) => toStr(x)).filter(Boolean)
-        : typeof t2raw === "string" ? t2raw.split(",").map((x: string) => x.trim()).filter(Boolean)
-        : [];
-      for (const t of [...t1, ...t2]) {
-        const tt = toStr(t);
-        if (tt) set.add(tt);
-      }
+      for (const t of getTags(p)) set.add(t);
     }
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
   }, [products]);
@@ -279,30 +164,20 @@ export default function CatalogPage() {
     const qq = normalizeText(q);
 
     let list = products.filter((p) => {
-      const name = normalizeText(getProductName(p));
+      const title = normalizeText(getProductName(p));
       const desc = normalizeText(p.description);
-      const cat = normalizeText(p.category || p.fields?.category);
-
-      const t = [
-        ...(Array.isArray(p.tags) ? p.tags : []),
-        ...(Array.isArray(p.fields?.tags) ? p.fields.tags : []),
-      ].map(normalizeText);
+      const cat = normalizeText(getCategory(p));
+      const t = getTags(p).map(normalizeText);
 
       const matchQ =
         !qq ||
-        name.includes(qq) ||
+        title.includes(qq) ||
         desc.includes(qq) ||
         cat.includes(qq) ||
         t.some((x) => x.includes(qq));
 
-      const matchCategory =
-        selectedCategory === "All" ||
-        toStr(p.category || p.fields?.category) === selectedCategory;
-
-      const matchTag =
-        selectedTag === "All" ||
-        (Array.isArray(p.tags) && p.tags.includes(selectedTag)) ||
-        (Array.isArray(p.fields?.tags) && p.fields.tags.includes(selectedTag));
+      const matchCategory = selectedCategory === "All" || getCategory(p) === selectedCategory;
+      const matchTag = selectedTag === "All" || getTags(p).includes(selectedTag);
 
       return matchQ && matchCategory && matchTag;
     });
@@ -313,8 +188,8 @@ export default function CatalogPage() {
       list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
     } else {
       list = list.sort((a, b) => {
-        const da = new Date(a.createdAt || 0).getTime();
-        const db = new Date(b.createdAt || 0).getTime();
+        const da = new Date((a.createdAt || a.created_at || 0) as any).getTime();
+        const db = new Date((b.createdAt || b.created_at || 0) as any).getTime();
         return db - da;
       });
     }
@@ -339,7 +214,12 @@ export default function CatalogPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <WalletConnect />
 
-              <select className="input" style={{ width: 180 }} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+              <select
+                className="input"
+                style={{ width: 180 }}
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
                 <option value="newest">Sort: Newest</option>
                 <option value="az">Sort: A → Z</option>
                 <option value="za">Sort: Z → A</option>
@@ -362,7 +242,9 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
                 <select className="input" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
                   {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -371,7 +253,9 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
                 <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
                   {tags.map((t) => (
-                    <option key={t} value={t}>{t}</option>
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -399,14 +283,24 @@ export default function CatalogPage() {
 
           <main>
             {err && (
-              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
+              <div
+                className="card"
+                style={{
+                  padding: 14,
+                  marginBottom: 14,
+                  borderColor: "rgba(255,80,80,.35)",
+                  background: "rgba(255,80,80,.08)",
+                }}
+              >
                 <div style={{ fontWeight: 900 }}>Error</div>
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
               </div>
             )}
 
             {loading ? (
-              <div className="card" style={{ padding: 18 }}>Loading…</div>
+              <div className="card" style={{ padding: 18 }}>
+                Loading…
+              </div>
             ) : filtered.length === 0 ? (
               <div className="card" style={{ padding: 18 }}>
                 <div style={{ fontWeight: 900 }}>No results</div>
@@ -416,24 +310,40 @@ export default function CatalogPage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
                 {filtered.map((p) => {
                   const img = getImageSrc(p);
-                  const link = getLink(p);
+                  const link = getLinkUrl(p);
                   const title = getProductName(p);
-                  const desc = toStr(p.description);
+                  const desc = (p.description || "").toString();
 
-                  // show useful extra fields (avoid repeating known keys)
-                  const meta =
-                    p.fields && isObj(p.fields)
-                      ? Object.entries(p.fields)
-                          .filter(([k, v]) => {
-                            const kk = k.toLowerCase();
-                            if (!toStr(v)) return false;
-                            if (["name", "title", "description", "desc", "image", "imageurl", "image_url", "link", "linkurl", "link_url", "url", "website", "web", "tags", "category"].includes(kk)) {
-                              return false;
-                            }
-                            return true;
-                          })
-                          .slice(0, 8)
-                      : [];
+                  const fields = getFields(p);
+
+                  // filter out common/system keys that should not show as “extra fields”
+                  const hiddenKeys = new Set([
+                    "id",
+                    "name",
+                    "title",
+                    "description",
+                    "image",
+                    "imageUrl",
+                    "image_url",
+                    "imagePath",
+                    "image_path",
+                    "upload",
+                    "link",
+                    "linkUrl",
+                    "link_url",
+                    "url",
+                    "tags",
+                    "category",
+                    "createdAt",
+                    "created_at",
+                  ]);
+
+                  const meta = fields && typeof fields === "object"
+                    ? Object.entries(fields)
+                        .filter(([k, v]) => !hiddenKeys.has(k))
+                        .filter(([_, v]) => v !== null && v !== undefined && `${v}`.trim() !== "")
+                        .slice(0, 8)
+                    : [];
 
                   return (
                     <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -448,24 +358,7 @@ export default function CatalogPage() {
                         }}
                       >
                         {img ? (
-                          <img
-                            src={img}
-                            alt={title}
-                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                            onError={(e) => {
-                              // Hide broken image & show fallback
-                              const el = e.currentTarget;
-                              el.style.display = "none";
-                              const parent = el.parentElement;
-                              if (parent) {
-                                const fallback = document.createElement("div");
-                                fallback.textContent = "No image";
-                                fallback.style.color = "var(--muted)";
-                                fallback.style.fontSize = "13px";
-                                parent.appendChild(fallback);
-                              }
-                            }}
-                          />
+                          <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
                           <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
                         )}
@@ -484,9 +377,18 @@ export default function CatalogPage() {
                         {meta.length ? (
                           <div style={{ display: "grid", gap: 6 }}>
                             {meta.map(([k, v]) => (
-                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
+                              <div
+                                key={k}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  fontSize: 12,
+                                  color: "var(--muted)",
+                                }}
+                              >
                                 <span style={{ opacity: 0.9 }}>{k}</span>
-                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{toStr(v)}</span>
+                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{String(v)}</span>
                               </div>
                             ))}
                           </div>
