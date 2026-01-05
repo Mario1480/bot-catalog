@@ -17,9 +17,11 @@ const upload = multer();
 const uploadImage = multer({
   limits: { fileSize: 2 * 1024 * 1024 }, // English comment: 2MB limit
   fileFilter: (_req, file, cb) => {
-    const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
-    cb(ok ? null : new Error("Invalid image type"), ok);
-  }
+  const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
+  // English comment: Multer callback typing can differ between versions; enforce a safe signature.
+  const done = cb as unknown as (error: Error | null, acceptFile: boolean) => void;
+  done(ok ? null : new Error("Invalid image type"), ok);
+}
 });
 
 function ensureUploadsDir(): string {
