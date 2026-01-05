@@ -8,7 +8,7 @@ export function AppHeader() {
           <img src="/logo.png" alt="utrade" style={{ width: 34, height: 34, borderRadius: 10 }} />
           <div style={{ lineHeight: 1.1 }}>
             <div style={{ fontWeight: 800 }}>utrade.vip</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>Token-gated catalog</div>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>Token-gated Bot Catalog</div>
           </div>
         </Link>
 

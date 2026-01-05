@@ -8,14 +8,15 @@ type Product = {
   name?: string;
   title?: string;
   description?: string;
+
   imageUrl?: string;
   linkUrl?: string;
-  // Flexible product metadata fields (key/value).
   fields?: Record<string, any>;
-  // Optional tags/categories for filtering.
   tags?: string[];
   category?: string;
   createdAt?: string;
+
+  _raw?: any;
 };
 
 type SortKey = "newest" | "az" | "za";
@@ -28,83 +29,148 @@ function normalizeText(s: any) {
   return (s ?? "").toString().toLowerCase().trim();
 }
 
-function getImageSrc(p: Product) {
-  const u = (p.imageUrl || "").toString().trim();
-  if (!u) return "";
-  // Support absolute URLs and relative /uploads paths.
-  if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  if (u.startsWith("/")) return u; // e.g. /uploads/xxx
-  return `/uploads/${u}`; // e.g. "xxx.jpg"
+function toStringSafe(v: any) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
 }
 
-function getLink(p: Product) {
-  return (p.linkUrl || "").toString().trim();
-}
-
-function safeJson(v: any): Record<string, any> {
-  if (!v) return {};
-  if (typeof v === "object") return v as Record<string, any>;
-  if (typeof v === "string") {
-    try {
-      const out = JSON.parse(v);
-      return typeof out === "object" && out ? out : {};
-    } catch {
-      return {};
-    }
+function parseMaybeJson(v: any) {
+  if (!v) return null;
+  if (typeof v === "object") return v;
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
   }
+}
+
+function fieldsToRecord(v: any): Record<string, any> {
+  if (!v) return {};
+  if (typeof v === "object" && !Array.isArray(v)) return v as Record<string, any>;
+
+  // JSON string?
+  if (typeof v === "string") {
+    const parsed = parseMaybeJson(v);
+    if (parsed && typeof parsed === "object") return fieldsToRecord(parsed);
+    return {};
+  }
+
+  // Array like [{key,value}] or [{name,value}]
+  if (Array.isArray(v)) {
+    const out: Record<string, any> = {};
+    for (const item of v) {
+      if (!item) continue;
+      const k = toStringSafe(item.key ?? item.name ?? item.field ?? item.label);
+      const val = item.value ?? item.val ?? item.data;
+      if (k) out[k] = val;
+    }
+    return out;
+  }
+
   return {};
 }
 
 function normalizeProduct(raw: any): Product {
-  // Accept both snake_case and camelCase keys.
+  const id = String(raw?.id ?? raw?._id ?? "");
+
   const image =
-    raw.imageUrl ??
-    raw.image_url ??
-    raw.image ??
-    raw.imagePath ??
-    raw.image_path ??
+    raw?.imageUrl ??
+    raw?.image_url ??
+    raw?.image ??
+    raw?.imagePath ??
+    raw?.image_path ??
+    raw?.thumbnail ??
+    raw?.thumb ??
     "";
 
   const link =
-    raw.linkUrl ??
-    raw.link_url ??
-    raw.link ??
-    raw.url ??
-    raw.website ??
+    raw?.linkUrl ??
+    raw?.link_url ??
+    raw?.link ??
+    raw?.url ??
+    raw?.website ??
+    raw?.web ??
     "";
 
   const fields =
-    raw.fields ??
-    raw.extraFields ??
-    raw.extra_fields ??
-    safeJson(raw.extra_fields) ??
-    safeJson(raw.fields) ??
+    raw?.fields ??
+    raw?.extraFields ??
+    raw?.extra_fields ??
+    raw?.metadata ??
+    raw?.meta ??
+    raw?.attributes ??
     {};
 
   const createdAt =
-    raw.createdAt ??
-    raw.created_at ??
-    raw.created ??
-    raw.createdOn ??
-    raw.created_on ??
+    raw?.createdAt ??
+    raw?.created_at ??
+    raw?.created ??
+    raw?.createdOn ??
+    raw?.created_on ??
     undefined;
 
-  const tagsFromRaw: any[] = Array.isArray(raw.tags) ? raw.tags : [];
-  const tagsFromFields: any[] = Array.isArray(fields?.tags) ? fields.tags : [];
+  const fieldsObj = fieldsToRecord(fields);
+
+  const tagsRaw = raw?.tags;
+  const tagsFromRaw = Array.isArray(tagsRaw)
+    ? tagsRaw
+    : typeof tagsRaw === "string"
+      ? tagsRaw.split(",").map((x: string) => x.trim()).filter(Boolean)
+      : [];
+
+  const tagsFromFields = Array.isArray(fieldsObj?.tags)
+    ? fieldsObj.tags
+    : typeof fieldsObj?.tags === "string"
+      ? String(fieldsObj.tags).split(",").map((x) => x.trim()).filter(Boolean)
+      : [];
+
+  const category =
+    toStringSafe(raw?.category) ||
+    toStringSafe(fieldsObj?.category) ||
+    toStringSafe(raw?.cat) ||
+    "";
 
   return {
-    ...raw,
-    id: String(raw.id),
-    name: raw.name ?? raw.title ?? raw.product_name ?? raw.productTitle,
-    title: raw.title ?? raw.name,
-    description: raw.description ?? raw.desc ?? raw.details ?? "",
-    imageUrl: (image || "").toString(),
-    linkUrl: (link || "").toString(),
-    fields,
+    id,
+    name: raw?.name ?? raw?.title ?? raw?.product_name ?? raw?.productTitle,
+    title: raw?.title ?? raw?.name,
+    description: raw?.description ?? raw?.desc ?? raw?.details ?? "",
+    imageUrl: toStringSafe(image),
+    linkUrl: toStringSafe(link),
+    fields: fieldsObj,
     tags: [...tagsFromRaw, ...tagsFromFields].filter(Boolean).map((t) => String(t)),
-    category: (raw.category ?? fields?.category ?? "").toString(),
+    category,
     createdAt: createdAt ? String(createdAt) : undefined,
+    _raw: raw,
   };
+}
+
+function getImageSrc(p: Product) {
+  const u = toStringSafe(p.imageUrl);
+  if (!u) return "";
+
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  if (u.startsWith("uploads/")) return `/${u}`; // "uploads/x" -> "/uploads/x"
+  if (u.startsWith("/")) return u;
+
+  return `/uploads/${u}`; // filename only
+}
+
+function getLink(p: Product) {
+  const direct = toStringSafe(p.linkUrl);
+  if (direct) return direct;
+
+  const f = p.fields || {};
+  const candidates = [f.linkUrl, f.link_url, f.link, f.url, f.website, f.web, f.checkout];
+
+  for (const c of candidates) {
+    const v = toStringSafe(c);
+    if (v) return v;
+  }
+  return "";
 }
 
 export default function CatalogPage() {
@@ -115,12 +181,10 @@ export default function CatalogPage() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
 
-  // Sidebar filter state.
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
   const [selectedTag, setSelectedTag] = useState<string>("All");
 
   useEffect(() => {
-    // Require JWT, otherwise redirect home.
     const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
     if (!jwt) {
       window.location.href = "/";
@@ -133,13 +197,11 @@ export default function CatalogPage() {
         setErr("");
 
         const out = await apiFetch("/products", { method: "GET" }, jwt || undefined);
-
-        // Accept both {items: []} and [] as response.
         const items = Array.isArray(out) ? out : out?.items || out?.products || [];
+
         setProducts((items || []).map(normalizeProduct));
       } catch (e: any) {
         setErr(e?.message || "Failed to load products");
-        // If unauthorized, send back to home.
         if ((e?.message || "").toLowerCase().includes("unauthorized")) {
           localStorage.removeItem("user_jwt");
           window.location.href = "/";
@@ -153,7 +215,7 @@ export default function CatalogPage() {
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const p of products) {
-      const c = (p.category || p.fields?.category || "").toString().trim();
+      const c = toStringSafe(p.category || p.fields?.category);
       if (c) set.add(c);
     }
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -165,7 +227,7 @@ export default function CatalogPage() {
       const t1: string[] = Array.isArray(p.tags) ? p.tags : [];
       const t2: string[] = Array.isArray(p.fields?.tags) ? p.fields.tags : [];
       for (const t of [...t1, ...t2]) {
-        const tt = (t || "").toString().trim();
+        const tt = toStringSafe(t);
         if (tt) set.add(tt);
       }
     }
@@ -194,7 +256,7 @@ export default function CatalogPage() {
 
       const matchCategory =
         selectedCategory === "All" ||
-        (p.category || p.fields?.category || "").toString() === selectedCategory;
+        toStringSafe(p.category || p.fields?.category) === selectedCategory;
 
       const matchTag =
         selectedTag === "All" ||
@@ -209,7 +271,6 @@ export default function CatalogPage() {
     } else if (sort === "za") {
       list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
     } else {
-      // newest
       list = list.sort((a, b) => {
         const da = new Date(a.createdAt || 0).getTime();
         const db = new Date(b.createdAt || 0).getTime();
@@ -225,17 +286,8 @@ export default function CatalogPage() {
       <AppHeader />
 
       <div className="container">
-        {/* Top bar */}
         <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-          <div
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
               <div style={{ color: "var(--muted)", fontSize: 13 }}>
@@ -246,12 +298,7 @@ export default function CatalogPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <WalletConnect />
 
-              <select
-                className="input"
-                style={{ width: 180 }}
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
-              >
+              <select className="input" style={{ width: 180 }} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
                 <option value="newest">Sort: Newest</option>
                 <option value="az">Sort: A → Z</option>
                 <option value="za">Sort: Z → A</option>
@@ -261,7 +308,6 @@ export default function CatalogPage() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-          {/* Sidebar */}
           <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
             <input className="input" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -314,18 +360,9 @@ export default function CatalogPage() {
             </div>
           </aside>
 
-          {/* Main grid */}
           <main>
             {err && (
-              <div
-                className="card"
-                style={{
-                  padding: 14,
-                  marginBottom: 14,
-                  borderColor: "rgba(255,80,80,.35)",
-                  background: "rgba(255,80,80,.08)",
-                }}
-              >
+              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
                 <div style={{ fontWeight: 900 }}>Error</div>
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
               </div>
@@ -346,23 +383,41 @@ export default function CatalogPage() {
                   const img = getImageSrc(p);
                   const link = getLink(p);
                   const title = getProductName(p);
-                  const desc = (p.description || "").toString();
+                  const desc = toStringSafe(p.description);
 
-                  // Only show real “extra” fields; avoid duplicating common keys.
                   const meta =
                     p.fields && typeof p.fields === "object"
                       ? Object.entries(p.fields)
                           .filter(([k, v]) => {
                             if (v === null || v === undefined) return false;
-                            const sv = `${v}`.trim();
+                            const sv = toStringSafe(v);
                             if (!sv) return false;
+
                             const kk = k.toLowerCase();
-                            // Filter out common keys that are already shown elsewhere
-                            if (["title", "name", "description", "image", "imageurl", "image_url", "link", "linkurl", "link_url", "category", "tags"].includes(kk))
+                            if (
+                              [
+                                "title",
+                                "name",
+                                "description",
+                                "image",
+                                "imageurl",
+                                "image_url",
+                                "link",
+                                "linkurl",
+                                "link_url",
+                                "category",
+                                "tags",
+                                "url",
+                                "website",
+                                "web",
+                              ].includes(kk)
+                            ) {
                               return false;
+                            }
+
                             return true;
                           })
-                          .slice(0, 6)
+                          .slice(0, 8)
                       : [];
 
                   return (
@@ -378,7 +433,23 @@ export default function CatalogPage() {
                         }}
                       >
                         {img ? (
-                          <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <img
+                            src={img}
+                            alt={title}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                            onError={(e) => {
+                              const el = e.currentTarget as HTMLImageElement;
+                              el.style.display = "none";
+                              const parent = el.parentElement;
+                              if (parent) {
+                                const fallback = document.createElement("div");
+                                fallback.textContent = "No image";
+                                fallback.style.color = "var(--muted)";
+                                fallback.style.fontSize = "13px";
+                                parent.appendChild(fallback);
+                              }
+                            }}
+                          />
                         ) : (
                           <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
                         )}
@@ -397,18 +468,9 @@ export default function CatalogPage() {
                         {meta.length ? (
                           <div style={{ display: "grid", gap: 6 }}>
                             {meta.map(([k, v]) => (
-                              <div
-                                key={k}
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 10,
-                                  fontSize: 12,
-                                  color: "var(--muted)",
-                                }}
-                              >
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
                                 <span style={{ opacity: 0.9 }}>{k}</span>
-                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{String(v)}</span>
+                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{toStringSafe(v)}</span>
                               </div>
                             ))}
                           </div>
