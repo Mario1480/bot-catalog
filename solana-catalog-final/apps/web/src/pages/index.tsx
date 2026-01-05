@@ -99,7 +99,7 @@ export default function Home() {
           >
             <div>
               <h1 style={{ margin: 0, fontSize: 34, letterSpacing: -0.5 }}>
-                Token-gated catalog
+                uTrade Bot Catalog
               </h1>
 
               <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.5 }}>

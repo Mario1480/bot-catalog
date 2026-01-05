@@ -4,7 +4,7 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 export function WalletConnect() {
   const { connected, disconnect } = useWallet();
-
+ 
   // Optional: Wenn Wallet disconnected => zurück zur Startseite
   useEffect(() => {
     if (!connected) return;

@@ -4,7 +4,7 @@ import { WalletConnect } from "../components/WalletConnect";
 import { apiFetch } from "../lib/api";
 
 type AnyObj = Record<string, any>;
-
+ 
 type Product = {
   id: string;
 
