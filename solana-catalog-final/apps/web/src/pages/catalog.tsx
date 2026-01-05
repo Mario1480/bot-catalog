@@ -1,128 +1,338 @@
-import { useEffect, useState } from "react";
-import { apiFetch, apiBase } from "../lib/api";
+import { useEffect, useMemo, useState } from "react";
+import { AppHeader } from "../components/AppHeader";
 import { WalletConnect } from "../components/WalletConnect";
+import { apiFetch } from "../lib/api";
 
 type Product = {
   id: string;
-  title: string;
-  description: string;
-  image_url: string;
-  target_url: string;
+  name?: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  linkUrl?: string;
+  // English comment: Flexible product metadata fields (key/value).
+  fields?: Record<string, any>;
+  // English comment: Optional tags/categories for filtering.
+  tags?: string[];
+  category?: string;
+  createdAt?: string;
 };
 
-export default function Catalog() {
+type SortKey = "newest" | "az" | "za";
+
+function getProductName(p: Product) {
+  return (p.name || p.title || "Untitled").toString();
+}
+
+function normalizeText(s: any) {
+  return (s ?? "").toString().toLowerCase().trim();
+}
+
+function getImageSrc(p: Product) {
+  const u = p.imageUrl || "";
+  if (!u) return "";
+  // English comment: Support absolute URLs and relative /uploads paths.
+  if (u.startsWith("http://") || u.startsWith("https://")) return u;
+  if (u.startsWith("/")) return u;
+  return `/uploads/${u}`;
+}
+
+function getLink(p: Product) {
+  return p.linkUrl || "";
+}
+
+export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [filters, setFilters] = useState<Record<string, string[]>>({});
-  const [active, setActive] = useState<Record<string, string>>({});
-  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") || "" : "";
-  const ABS_API = apiBase();
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState<SortKey>("newest");
 
-  async function loadFilters() {
-    const f = await apiFetch("/products/filters", { method: "GET" }, token);
-    setFilters(f);
-  }
-
-  async function loadProducts() {
-    const params = new URLSearchParams();
-    if (search) params.set("search", search);
-    Object.entries(active).forEach(([k, v]) => params.set(`filters[${k}]`, v));
-
-    const p = await apiFetch(`/products?${params.toString()}`, { method: "GET" }, token);
-    setProducts(p);
-  }
+  // English comment: Sidebar filter state.
+  const [selectedCategory, setSelectedCategory] = useState<string>("All");
+  const [selectedTag, setSelectedTag] = useState<string>("All");
 
   useEffect(() => {
+    // English comment: Require JWT, otherwise redirect home.
+    const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+    if (!jwt) {
+      window.location.href = "/";
+      return;
+    }
+
     (async () => {
       try {
-        await loadFilters();
-        await loadProducts();
+        setLoading(true);
+        setErr("");
+
+        const out = await apiFetch("/products", { method: "GET" }, jwt || undefined);
+
+        // English comment: Accept both {items: []} and [] as response.
+        const items = Array.isArray(out) ? out : (out?.items || out?.products || []);
+        setProducts(items);
       } catch (e: any) {
-        setErr(e.message || "Failed to load");
+        setErr(e?.message || "Failed to load products");
+        // English comment: If unauthorized, send back to home.
+        if ((e?.message || "").toLowerCase().includes("unauthorized")) {
+          localStorage.removeItem("user_jwt");
+          window.location.href = "/";
+        }
+      } finally {
+        setLoading(false);
       }
     })();
   }, []);
 
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const c = (p.category || p.fields?.category || "").toString().trim();
+      if (c) set.add(c);
+    }
+    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [products]);
+
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const t1: string[] = Array.isArray(p.tags) ? p.tags : [];
+      const t2: string[] = Array.isArray(p.fields?.tags) ? p.fields.tags : [];
+      for (const t of [...t1, ...t2]) {
+        const tt = (t || "").toString().trim();
+        if (tt) set.add(tt);
+      }
+    }
+    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [products]);
+
+  const filtered = useMemo(() => {
+    const qq = normalizeText(q);
+
+    let list = products.filter((p) => {
+      const name = normalizeText(getProductName(p));
+      const desc = normalizeText(p.description);
+      const cat = normalizeText(p.category || p.fields?.category);
+      const t = [
+        ...(Array.isArray(p.tags) ? p.tags : []),
+        ...(Array.isArray(p.fields?.tags) ? p.fields.tags : []),
+      ].map(normalizeText);
+
+      const matchQ =
+        !qq ||
+        name.includes(qq) ||
+        desc.includes(qq) ||
+        cat.includes(qq) ||
+        t.some((x) => x.includes(qq));
+
+      const matchCategory =
+        selectedCategory === "All" ||
+        (p.category || p.fields?.category || "").toString() === selectedCategory;
+
+      const matchTag =
+        selectedTag === "All" ||
+        (Array.isArray(p.tags) && p.tags.includes(selectedTag)) ||
+        (Array.isArray(p.fields?.tags) && p.fields.tags.includes(selectedTag));
+
+      return matchQ && matchCategory && matchTag;
+    });
+
+    if (sort === "az") {
+      list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
+    } else if (sort === "za") {
+      list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
+    } else {
+      // newest
+      list = list.sort((a, b) => {
+        const da = new Date(a.createdAt || 0).getTime();
+        const db = new Date(b.createdAt || 0).getTime();
+        return db - da;
+      });
+    }
+
+    return list;
+  }, [products, q, sort, selectedCategory, selectedTag]);
+
   return (
-    <div style={{ maxWidth: 1000, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>Catalog</h1>
-        <WalletConnect />
-      </div>
+    <>
+      <AppHeader />
 
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
-
-      <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search..."
-          style={{ flex: 1, padding: 10 }}
-        />
-        <button onClick={loadProducts} style={{ padding: "10px 14px" }}>
-          Search
-        </button>
-      </div>
-
-      <div style={{ marginTop: 16, display: "flex", flexWrap: "wrap", gap: 10 }}>
-        {Object.entries(filters).map(([key, values]) => (
-          <select
-            key={key}
-            value={active[key] || ""}
-            onChange={(e) => {
-              const v = e.target.value;
-              const next = { ...active };
-              if (!v) delete next[key];
-              else next[key] = v;
-              setActive(next);
-            }}
-            style={{ padding: 10 }}
-          >
-            <option value="">{key}: (all)</option>
-            {values.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        ))}
-        <button onClick={loadProducts} style={{ padding: "10px 14px" }}>
-          Apply
-        </button>
-      </div>
-
-      <div
-        style={{
-          marginTop: 24,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 16
-        }}
-      >
-        {products.map((p) => {
-          // English comment: If image_url is a local path, prefix API base.
-          const img = p.image_url?.startsWith("/uploads/") ? `${ABS_API}${p.image_url}` : p.image_url;
-
-          return (
-            <div key={p.id} style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-              {img && (
-                <img
-                  src={img}
-                  alt={p.title}
-                  style={{ width: "100%", height: 180, objectFit: "cover", borderRadius: 10 }}
-                />
-              )}
-              <h3 style={{ marginTop: 12 }}>{p.title}</h3>
-              <p style={{ opacity: 0.8 }}>{p.description}</p>
-              <a href={p.target_url} target="_blank" rel="noreferrer">
-                <button style={{ padding: "10px 14px", width: "100%" }}>Open link</button>
-              </a>
+      <div className="container">
+        {/* Top bar */}
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
+              <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                {loading ? "Loading products…" : `${filtered.length} item(s)`}
+              </div>
             </div>
-          );
-        })}
+
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <WalletConnect />
+
+              <select
+                className="input"
+                style={{ width: 180 }}
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
+                <option value="newest">Sort: Newest</option>
+                <option value="az">Sort: A → Z</option>
+                <option value="za">Sort: Z → A</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
+          {/* Sidebar */}
+          <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
+            <input
+              className="input"
+              placeholder="Search products…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+
+            <div style={{ height: 14 }} />
+
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Filters</div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
+                <select
+                  className="input"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                >
+                  {categories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
+                <select
+                  className="input"
+                  value={selectedTag}
+                  onChange={(e) => setSelectedTag(e.target.value)}
+                >
+                  {tags.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                className="btn"
+                onClick={() => {
+                  setQ("");
+                  setSelectedCategory("All");
+                  setSelectedTag("All");
+                  setSort("newest");
+                }}
+              >
+                Reset filters
+              </button>
+            </div>
+
+            <div style={{ height: 18 }} />
+
+            <div className="badge">
+              <span className="badgeDot" />
+              Token-gated access active
+            </div>
+          </aside>
+
+          {/* Main grid */}
+          <main>
+            {err && (
+              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
+                <div style={{ fontWeight: 900 }}>Error</div>
+                <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="card" style={{ padding: 18 }}>Loading…</div>
+            ) : filtered.length === 0 ? (
+              <div className="card" style={{ padding: 18 }}>
+                <div style={{ fontWeight: 900 }}>No results</div>
+                <div style={{ color: "var(--muted)", marginTop: 6 }}>
+                  Try a different search or reset filters.
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+                {filtered.map((p) => {
+                  const img = getImageSrc(p);
+                  const link = getLink(p);
+                  const title = getProductName(p);
+                  const desc = (p.description || "").toString();
+
+                  const meta = p.fields && typeof p.fields === "object"
+                    ? Object.entries(p.fields)
+                        .filter(([k, v]) => v !== null && v !== undefined && `${v}`.trim() !== "")
+                        .slice(0, 6)
+                    : [];
+
+                  return (
+                    <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <div style={{ height: 160, background: "rgba(255,255,255,.04)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {img ? (
+                          <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        ) : (
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
+                        )}
+                      </div>
+
+                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                        <div>
+                          <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
+                          {desc ? (
+                            <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>
+                              {desc.length > 140 ? desc.slice(0, 140) + "…" : desc}
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {meta.length ? (
+                          <div style={{ display: "grid", gap: 6 }}>
+                            {meta.map(([k, v]) => (
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
+                                <span style={{ opacity: 0.9 }}>{k}</span>
+                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{String(v)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ color: "var(--muted)", fontSize: 12 }}>No extra fields</div>
+                        )}
+
+                        <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
+                          {link ? (
+                            <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
+                              Open
+                            </a>
+                          ) : (
+                            <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
+                              No link
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

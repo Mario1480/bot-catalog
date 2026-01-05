@@ -1,0 +1,81 @@
+:root{
+  --brand: #FFC107;
+  --bg: #0b0f14;
+  --card: #101826;
+  --text: #e8eef7;
+  --muted: rgba(232,238,247,.7);
+  --border: rgba(255,255,255,.10);
+}
+
+html, body {
+  padding: 0;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+a { color: inherit; }
+
+* { box-sizing: border-box; }
+
+.container {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 14px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.btnPrimary {
+  background: var(--brand);
+  border-color: rgba(0,0,0,.15);
+  color: #111;
+  font-weight: 700;
+}
+
+.input {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  font-size: 12px;
+  color: var(--muted);
+}
+.badgeDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--brand);
+}
