@@ -1,59 +1,60 @@
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/router";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletModalButton } from "@solana/wallet-adapter-react-ui";
-
-// English comment: Small status chip UI for wallet connection.
-function StatusChip({ connected, text }: { connected: boolean; text: string }) {
-  return (
-    <span className="badge" title={text}>
-      <span className="badgeDot" style={{ background: connected ? "var(--brand)" : "rgba(232,238,247,.35)" }} />
-      {text}
-    </span>
-  );
-}
+import { useEffect, useState } from "react";
 
 export function WalletConnect() {
-  const router = useRouter();
-  const wallet = useWallet();
-  const [lastPublicKey, setLastPublicKey] = useState<string>("");
-
-  const connected = !!wallet.connected && !!wallet.publicKey;
-  const short = useMemo(() => {
-    const pk = wallet.publicKey?.toBase58() || "";
-    if (!pk) return "";
-    return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
-  }, [wallet.publicKey]);
+  const { publicKey, connected, disconnect } = useWallet();
+  const [hasPhantom, setHasPhantom] = useState(false);
+  const [err, setErr] = useState("");
 
   useEffect(() => {
-    // English comment: When user disconnects, clear auth + return to home.
-    if (!connected && lastPublicKey) {
-      localStorage.removeItem("user_jwt");
-      router.push("/");
+    // English comment: Detect Phantom injection.
+    const anyWin = window as any;
+    setHasPhantom(!!anyWin?.solana?.isPhantom);
+  }, []);
+
+  async function connectPhantomDirect() {
+    setErr("");
+    try {
+      const anyWin = window as any;
+      if (!anyWin?.solana?.isPhantom) {
+        setErr("Phantom extension not detected in this browser context.");
+        return;
+      }
+      await anyWin.solana.connect(); // should open Phantom popup
+    } catch (e: any) {
+      setErr(e?.message || "Failed to open Phantom.");
     }
-    if (connected && wallet.publicKey) setLastPublicKey(wallet.publicKey.toBase58());
-  }, [connected, wallet.publicKey, lastPublicKey, router]);
+  }
 
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-      <WalletModalButton className="btn btnPrimary" />
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Default wallet-adapter modal */}
+      <WalletModalButton />
 
-      {connected ? (
-        <>
-          <StatusChip connected={true} text={`Connected: ${short}`} />
-          <button
-            className="btn"
-            onClick={async () => {
-              await wallet.disconnect();
-              // English comment: router redirect handled by effect.
-            }}
-          >
-            Disconnect
-          </button>
-        </>
-      ) : (
-        <StatusChip connected={false} text="Not connected" />
+      {/* Direct Phantom fallback */}
+      {!connected && (
+        <button onClick={connectPhantomDirect} disabled={!hasPhantom}>
+          Connect Phantom (direct)
+        </button>
       )}
+
+      {connected && (
+        <button
+          onClick={async () => {
+            await disconnect();
+            window.dispatchEvent(new Event("wallet-disconnect"));
+          }}
+        >
+          Disconnect
+        </button>
+      )}
+
+      <span style={{ opacity: 0.8 }}>
+        {connected ? `Connected: ${publicKey?.toBase58().slice(0, 4)}…${publicKey?.toBase58().slice(-4)}` : "Not connected"}
+      </span>
+
+      {err && <span style={{ color: "crimson" }}>{err}</span>}
     </div>
   );
 }
