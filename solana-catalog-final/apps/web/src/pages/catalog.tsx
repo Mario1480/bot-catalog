@@ -9,37 +9,27 @@ type Product = {
   title?: string;
   description?: string;
 
-  imageUrl?: string;
-  linkUrl?: string;
-  fields?: Record<string, any>;
+  imageUrl?: string; // normalized
+  linkUrl?: string;  // normalized
+
+  fields?: Record<string, any>; // normalized
   tags?: string[];
   category?: string;
   createdAt?: string;
 
-  _raw?: any;
+  _raw?: any; // debug / safety
 };
 
 type SortKey = "newest" | "az" | "za";
 
-function getProductName(p: Product) {
-  return (p.name || p.title || "Untitled").toString();
-}
+const isObj = (v: any) => v && typeof v === "object" && !Array.isArray(v);
 
-function normalizeText(s: any) {
-  return (s ?? "").toString().toLowerCase().trim();
-}
-
-function toStringSafe(v: any) {
+function toStr(v: any) {
   if (v === null || v === undefined) return "";
   return String(v).trim();
 }
 
-function parseMaybeJson(v: any) {
-  if (!v) return null;
-  if (typeof v === "object") return v;
-  if (typeof v !== "string") return null;
-  const s = v.trim();
-  if (!s) return null;
+function safeJsonParse(s: string) {
   try {
     return JSON.parse(s);
   } catch {
@@ -47,23 +37,65 @@ function parseMaybeJson(v: any) {
   }
 }
 
+/**
+ * Find first "string-ish" value in object by trying:
+ * - exact keys
+ * - regex search in all keys (case-insensitive)
+ * - nested objects 1-level deep
+ */
+function findString(raw: any, exactKeys: string[], keyRegex?: RegExp): string {
+  if (!raw) return "";
+
+  // 1) exact keys
+  for (const k of exactKeys) {
+    const v = raw?.[k];
+    const s = toStr(v);
+    if (s) return s;
+  }
+
+  // 2) regex over keys (top-level)
+  if (keyRegex && isObj(raw)) {
+    for (const [k, v] of Object.entries(raw)) {
+      if (!keyRegex.test(k)) continue;
+      const s = toStr(v);
+      if (s) return s;
+    }
+  }
+
+  // 3) nested 1-level
+  if (keyRegex && isObj(raw)) {
+    for (const v of Object.values(raw)) {
+      if (!isObj(v)) continue;
+      for (const [k2, v2] of Object.entries(v)) {
+        if (!keyRegex.test(k2)) continue;
+        const s = toStr(v2);
+        if (s) return s;
+      }
+    }
+  }
+
+  return "";
+}
+
 function fieldsToRecord(v: any): Record<string, any> {
   if (!v) return {};
-  if (typeof v === "object" && !Array.isArray(v)) return v as Record<string, any>;
 
-  // JSON string?
+  // already object
+  if (isObj(v)) return v as Record<string, any>;
+
+  // json string
   if (typeof v === "string") {
-    const parsed = parseMaybeJson(v);
-    if (parsed && typeof parsed === "object") return fieldsToRecord(parsed);
+    const parsed = safeJsonParse(v.trim());
+    if (parsed) return fieldsToRecord(parsed);
     return {};
   }
 
-  // Array like [{key,value}] or [{name,value}]
+  // array like [{key,value}] or [{name,value}]
   if (Array.isArray(v)) {
     const out: Record<string, any> = {};
     for (const item of v) {
       if (!item) continue;
-      const k = toStringSafe(item.key ?? item.name ?? item.field ?? item.label);
+      const k = toStr(item.key ?? item.name ?? item.field ?? item.label);
       const val = item.value ?? item.val ?? item.data;
       if (k) out[k] = val;
     }
@@ -74,103 +106,108 @@ function fieldsToRecord(v: any): Record<string, any> {
 }
 
 function normalizeProduct(raw: any): Product {
-  const id = String(raw?.id ?? raw?._id ?? "");
+  const id = toStr(raw?.id ?? raw?._id ?? raw?.uuid ?? raw?.productId);
 
-  const image =
-    raw?.imageUrl ??
-    raw?.image_url ??
-    raw?.image ??
-    raw?.imagePath ??
-    raw?.image_path ??
-    raw?.thumbnail ??
-    raw?.thumb ??
-    "";
+  const title = toStr(raw?.name ?? raw?.title ?? raw?.product_name ?? raw?.productTitle) || "Untitled";
+  const desc = toStr(raw?.description ?? raw?.desc ?? raw?.details ?? raw?.text ?? raw?.content);
 
-  const link =
-    raw?.linkUrl ??
-    raw?.link_url ??
-    raw?.link ??
-    raw?.url ??
-    raw?.website ??
-    raw?.web ??
-    "";
-
-  const fields =
+  // fields / metadata / extra fields
+  const fieldsCandidate =
     raw?.fields ??
     raw?.extraFields ??
     raw?.extra_fields ??
     raw?.metadata ??
     raw?.meta ??
     raw?.attributes ??
+    raw?.data ??
     {};
 
-  const createdAt =
-    raw?.createdAt ??
-    raw?.created_at ??
-    raw?.created ??
-    raw?.createdOn ??
-    raw?.created_on ??
-    undefined;
+  const fields = fieldsToRecord(fieldsCandidate);
 
-  const fieldsObj = fieldsToRecord(fields);
+  // image string detection (many possible keys)
+  const imageUrl =
+    findString(
+      raw,
+      ["imageUrl", "image_url", "image", "imagePath", "image_path", "thumbnail", "thumb", "photo", "picture", "img"],
+      /image|img|thumb|thumbnail|photo|picture/i
+    ) ||
+    findString(
+      fields,
+      ["imageUrl", "image_url", "image", "imagePath", "image_path", "thumbnail", "thumb", "photo", "picture", "img"],
+      /image|img|thumb|thumbnail|photo|picture/i
+    );
 
-  const tagsRaw = raw?.tags;
-  const tagsFromRaw = Array.isArray(tagsRaw)
-    ? tagsRaw
-    : typeof tagsRaw === "string"
-      ? tagsRaw.split(",").map((x: string) => x.trim()).filter(Boolean)
-      : [];
+  // link string detection (many possible keys)
+  const linkUrl =
+    findString(
+      raw,
+      ["linkUrl", "link_url", "link", "url", "website", "web", "href", "checkout", "shop", "productUrl", "product_url"],
+      /link|url|website|href|shop|checkout/i
+    ) ||
+    findString(
+      fields,
+      ["linkUrl", "link_url", "link", "url", "website", "web", "href", "checkout", "shop", "productUrl", "product_url"],
+      /link|url|website|href|shop|checkout/i
+    );
 
-  const tagsFromFields = Array.isArray(fieldsObj?.tags)
-    ? fieldsObj.tags
-    : typeof fieldsObj?.tags === "string"
-      ? String(fieldsObj.tags).split(",").map((x) => x.trim()).filter(Boolean)
-      : [];
+  // createdAt
+  const createdAt = toStr(raw?.createdAt ?? raw?.created_at ?? raw?.created ?? raw?.createdOn ?? raw?.created_on);
 
-  const category =
-    toStringSafe(raw?.category) ||
-    toStringSafe(fieldsObj?.category) ||
-    toStringSafe(raw?.cat) ||
-    "";
+  // tags/category
+  const tagsRaw = raw?.tags ?? fields?.tags;
+  const tags =
+    Array.isArray(tagsRaw)
+      ? tagsRaw.map((t: any) => toStr(t)).filter(Boolean)
+      : typeof tagsRaw === "string"
+        ? tagsRaw.split(",").map((x: string) => x.trim()).filter(Boolean)
+        : [];
+
+  const category = toStr(raw?.category ?? raw?.cat ?? fields?.category);
 
   return {
-    id,
-    name: raw?.name ?? raw?.title ?? raw?.product_name ?? raw?.productTitle,
-    title: raw?.title ?? raw?.name,
-    description: raw?.description ?? raw?.desc ?? raw?.details ?? "",
-    imageUrl: toStringSafe(image),
-    linkUrl: toStringSafe(link),
-    fields: fieldsObj,
-    tags: [...tagsFromRaw, ...tagsFromFields].filter(Boolean).map((t) => String(t)),
+    id: id || title, // fallback (avoid empty key crashes)
+    name: title,
+    title: title,
+    description: desc,
+    imageUrl: toStr(imageUrl),
+    linkUrl: toStr(linkUrl),
+    fields,
+    tags,
     category,
-    createdAt: createdAt ? String(createdAt) : undefined,
+    createdAt: createdAt || undefined,
     _raw: raw,
   };
 }
 
+function normalizeText(s: any) {
+  return toStr(s).toLowerCase().trim();
+}
+
+function getProductName(p: Product) {
+  return (p.name || p.title || "Untitled").toString();
+}
+
 function getImageSrc(p: Product) {
-  const u = toStringSafe(p.imageUrl);
+  const u = toStr(p.imageUrl);
   if (!u) return "";
 
+  // absolute
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  if (u.startsWith("uploads/")) return `/${u}`; // "uploads/x" -> "/uploads/x"
+
+  // already "/uploads/.."
   if (u.startsWith("/")) return u;
 
-  return `/uploads/${u}`; // filename only
+  // "uploads/..."
+  if (u.startsWith("uploads/")) return `/${u}`;
+
+  // filename
+  return `/uploads/${u}`;
 }
 
 function getLink(p: Product) {
-  const direct = toStringSafe(p.linkUrl);
-  if (direct) return direct;
-
-  const f = p.fields || {};
-  const candidates = [f.linkUrl, f.link_url, f.link, f.url, f.website, f.web, f.checkout];
-
-  for (const c of candidates) {
-    const v = toStringSafe(c);
-    if (v) return v;
-  }
-  return "";
+  const u = toStr(p.linkUrl);
+  if (!u) return "";
+  return u;
 }
 
 export default function CatalogPage() {
@@ -215,7 +252,7 @@ export default function CatalogPage() {
   const categories = useMemo(() => {
     const set = new Set<string>();
     for (const p of products) {
-      const c = toStringSafe(p.category || p.fields?.category);
+      const c = toStr(p.category || p.fields?.category);
       if (c) set.add(c);
     }
     return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
@@ -225,9 +262,13 @@ export default function CatalogPage() {
     const set = new Set<string>();
     for (const p of products) {
       const t1: string[] = Array.isArray(p.tags) ? p.tags : [];
-      const t2: string[] = Array.isArray(p.fields?.tags) ? p.fields.tags : [];
+      const t2raw = p.fields?.tags;
+      const t2: string[] =
+        Array.isArray(t2raw) ? t2raw.map((x: any) => toStr(x)).filter(Boolean)
+        : typeof t2raw === "string" ? t2raw.split(",").map((x: string) => x.trim()).filter(Boolean)
+        : [];
       for (const t of [...t1, ...t2]) {
-        const tt = toStringSafe(t);
+        const tt = toStr(t);
         if (tt) set.add(tt);
       }
     }
@@ -256,7 +297,7 @@ export default function CatalogPage() {
 
       const matchCategory =
         selectedCategory === "All" ||
-        toStringSafe(p.category || p.fields?.category) === selectedCategory;
+        toStr(p.category || p.fields?.category) === selectedCategory;
 
       const matchTag =
         selectedTag === "All" ||
@@ -321,9 +362,7 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
                 <select className="input" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
                   {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>
@@ -332,9 +371,7 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
                 <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
                   {tags.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
+                    <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </div>
@@ -369,9 +406,7 @@ export default function CatalogPage() {
             )}
 
             {loading ? (
-              <div className="card" style={{ padding: 18 }}>
-                Loading…
-              </div>
+              <div className="card" style={{ padding: 18 }}>Loading…</div>
             ) : filtered.length === 0 ? (
               <div className="card" style={{ padding: 18 }}>
                 <div style={{ fontWeight: 900 }}>No results</div>
@@ -383,38 +418,18 @@ export default function CatalogPage() {
                   const img = getImageSrc(p);
                   const link = getLink(p);
                   const title = getProductName(p);
-                  const desc = toStringSafe(p.description);
+                  const desc = toStr(p.description);
 
+                  // show useful extra fields (avoid repeating known keys)
                   const meta =
-                    p.fields && typeof p.fields === "object"
+                    p.fields && isObj(p.fields)
                       ? Object.entries(p.fields)
                           .filter(([k, v]) => {
-                            if (v === null || v === undefined) return false;
-                            const sv = toStringSafe(v);
-                            if (!sv) return false;
-
                             const kk = k.toLowerCase();
-                            if (
-                              [
-                                "title",
-                                "name",
-                                "description",
-                                "image",
-                                "imageurl",
-                                "image_url",
-                                "link",
-                                "linkurl",
-                                "link_url",
-                                "category",
-                                "tags",
-                                "url",
-                                "website",
-                                "web",
-                              ].includes(kk)
-                            ) {
+                            if (!toStr(v)) return false;
+                            if (["name", "title", "description", "desc", "image", "imageurl", "image_url", "link", "linkurl", "link_url", "url", "website", "web", "tags", "category"].includes(kk)) {
                               return false;
                             }
-
                             return true;
                           })
                           .slice(0, 8)
@@ -438,7 +453,8 @@ export default function CatalogPage() {
                             alt={title}
                             style={{ width: "100%", height: "100%", objectFit: "cover" }}
                             onError={(e) => {
-                              const el = e.currentTarget as HTMLImageElement;
+                              // Hide broken image & show fallback
+                              const el = e.currentTarget;
                               el.style.display = "none";
                               const parent = el.parentElement;
                               if (parent) {
@@ -470,7 +486,7 @@ export default function CatalogPage() {
                             {meta.map(([k, v]) => (
                               <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
                                 <span style={{ opacity: 0.9 }}>{k}</span>
-                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{toStringSafe(v)}</span>
+                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{toStr(v)}</span>
                               </div>
                             ))}
                           </div>
