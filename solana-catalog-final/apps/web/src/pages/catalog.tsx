@@ -38,10 +38,21 @@ function getProductName(p: Product) {
 function resolveImageSrc(raw: string) {
   const u = (raw || "").trim();
   if (!u) return "";
+
+  // absolute URLs direkt
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
-  // your API already returns "/uploads/..."
-  if (u.startsWith("/")) return u;
-  return `/uploads/${u}`;
+
+  // API base (gleich wie apiFetch)
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip";
+
+  // wenn API "/uploads/..." liefert → über api.utrade.vip ausliefern
+  if (u.startsWith("/uploads/")) return `${API_BASE}${u}`;
+
+  // falls nur Dateiname gespeichert wurde
+  if (!u.startsWith("/")) return `${API_BASE}/uploads/${u}`;
+
+  // andere absolute Pfade ebenfalls über API laufen lassen
+  return `${API_BASE}${u}`;
 }
 
 // English comment: Normalize link to absolute URL when possible.
