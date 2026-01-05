@@ -4,15 +4,15 @@ import { WalletConnect } from "../components/WalletConnect";
 import { apiFetch } from "../lib/api";
 
 type AnyObj = Record<string, any>;
- 
+
 type Product = {
   id: string;
 
-  // common naming variants
   name?: string;
   title?: string;
 
   description?: string;
+  desc?: string;
 
   imageUrl?: string;
   image_url?: string;
@@ -20,15 +20,20 @@ type Product = {
   imagePath?: string;
   image_path?: string;
   upload?: string;
+  file?: string;
+  filename?: string;
 
   linkUrl?: string;
   link_url?: string;
   link?: string;
   url?: string;
+  href?: string;
+  website?: string;
+  buttonUrl?: string;
 
-  fields?: AnyObj;
-  extraFields?: AnyObj;
-  metadata?: AnyObj;
+  fields?: any;
+  extraFields?: any;
+  metadata?: any;
 
   tags?: string[];
   category?: string;
@@ -54,12 +59,53 @@ function pickFirstString(...vals: any[]) {
   return "";
 }
 
+// English comment: Support fields coming as object, JSON string, or array of {key,value}.
+function coerceFields(x: any): AnyObj {
+  if (!x) return {};
+
+  // If it's already an object (but not array)
+  if (typeof x === "object" && !Array.isArray(x)) return x as AnyObj;
+
+  // JSON string
+  if (typeof x === "string") {
+    try {
+      const parsed = JSON.parse(x);
+      return coerceFields(parsed);
+    } catch {
+      return {};
+    }
+  }
+
+  // Array of {key,value} or {k,v}
+  if (Array.isArray(x)) {
+    const out: AnyObj = {};
+    for (const item of x) {
+      if (!item) continue;
+      const k = item.key ?? item.k ?? item.name;
+      const v = item.value ?? item.v ?? item.val;
+      if (k !== undefined && k !== null) out[String(k)] = v;
+    }
+    return out;
+  }
+
+  return {};
+}
+
+function getFields(p: Product): AnyObj {
+  const a = coerceFields((p as any).fields);
+  const b = coerceFields((p as any).extraFields);
+  const c = coerceFields((p as any).metadata);
+
+  // Merge order: fields -> extraFields -> metadata (last wins)
+  return { ...a, ...b, ...c };
+}
+
 function ensureUploadsPath(raw: string) {
   const u = (raw || "").trim();
   if (!u) return "";
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
   if (u.startsWith("/uploads/")) return u;
-  if (u.startsWith("/")) return u; // allow absolute site path
+  if (u.startsWith("/")) return u;
   return `/uploads/${u}`;
 }
 
@@ -68,38 +114,51 @@ function ensureLink(raw: string) {
   if (!u) return "";
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
   if (u.startsWith("www.")) return `https://${u}`;
-  // relative path? allow it:
   if (u.startsWith("/")) return u;
-  // default:
   return `https://${u}`;
 }
 
-function getFields(p: Product): AnyObj {
-  const a = (p.fields && typeof p.fields === "object") ? p.fields : null;
-  const b = (p.extraFields && typeof p.extraFields === "object") ? p.extraFields : null;
-  const c = (p.metadata && typeof p.metadata === "object") ? p.metadata : null;
-  return (a || b || c || {}) as AnyObj;
+function getDescription(p: Product) {
+  return (p.description || p.desc || "").toString();
 }
 
 function getCategory(p: Product) {
   const f = getFields(p);
-  return (p.category ?? f.category ?? "").toString().trim();
+  return (p.category ?? f.category ?? f.Category ?? "").toString().trim();
 }
 
 function getTags(p: Product): string[] {
   const f = getFields(p);
   const t1 = Array.isArray(p.tags) ? p.tags : [];
   const t2 = Array.isArray(f.tags) ? f.tags : [];
-  return [...t1, ...t2].map((x) => (x ?? "").toString().trim()).filter(Boolean);
+  const t3 = typeof f.tags === "string" ? f.tags.split(",") : [];
+  return [...t1, ...t2, ...t3]
+    .map((x) => (x ?? "").toString().trim())
+    .filter(Boolean);
 }
 
 function getImageSrc(p: Product) {
-  const raw = pickFirstString(p.imageUrl, p.image_url, p.image, p.imagePath, p.image_path, p.upload);
+  const f = getFields(p);
+
+  // Try top-level first, then fields
+  const raw = pickFirstString(
+    p.imageUrl, p.image_url, p.image, p.imagePath, p.image_path, p.upload, p.file, p.filename,
+    f.imageUrl, f.image_url, f.image, f.imagePath, f.image_path, f.upload, f.file, f.filename,
+    f.photo, f.picture
+  );
+
   return ensureUploadsPath(raw);
 }
 
 function getLinkUrl(p: Product) {
-  const raw = pickFirstString(p.linkUrl, p.link_url, p.link, p.url);
+  const f = getFields(p);
+
+  const raw = pickFirstString(
+    p.linkUrl, p.link_url, p.link, p.url, p.href, p.website, p.buttonUrl,
+    f.linkUrl, f.link_url, f.link, f.url, f.href, f.website, f.buttonUrl,
+    f.shop, f.buy, f.target
+  );
+
   return ensureLink(raw);
 }
 
@@ -165,7 +224,7 @@ export default function CatalogPage() {
 
     let list = products.filter((p) => {
       const title = normalizeText(getProductName(p));
-      const desc = normalizeText(p.description);
+      const desc = normalizeText(getDescription(p));
       const cat = normalizeText(getCategory(p));
       const t = getTags(p).map(normalizeText);
 
@@ -182,11 +241,9 @@ export default function CatalogPage() {
       return matchQ && matchCategory && matchTag;
     });
 
-    if (sort === "az") {
-      list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
-    } else if (sort === "za") {
-      list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
-    } else {
+    if (sort === "az") list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
+    if (sort === "za") list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
+    if (sort === "newest") {
       list = list.sort((a, b) => {
         const da = new Date((a.createdAt || a.created_at || 0) as any).getTime();
         const db = new Date((b.createdAt || b.created_at || 0) as any).getTime();
@@ -214,12 +271,7 @@ export default function CatalogPage() {
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <WalletConnect />
 
-              <select
-                className="input"
-                style={{ width: 180 }}
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortKey)}
-              >
+              <select className="input" style={{ width: 180 }} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
                 <option value="newest">Sort: Newest</option>
                 <option value="az">Sort: A → Z</option>
                 <option value="za">Sort: Z → A</option>
@@ -242,9 +294,7 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
                 <select className="input" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
                   {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
+                    <option key={c} value={c}>{c}</option>
                   ))}
                 </select>
               </div>
@@ -253,22 +303,12 @@ export default function CatalogPage() {
                 <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
                 <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
                   {tags.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
+                    <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </div>
 
-              <button
-                className="btn"
-                onClick={() => {
-                  setQ("");
-                  setSelectedCategory("All");
-                  setSelectedTag("All");
-                  setSort("newest");
-                }}
-              >
+              <button className="btn" onClick={() => { setQ(""); setSelectedCategory("All"); setSelectedTag("All"); setSort("newest"); }}>
                 Reset filters
               </button>
             </div>
@@ -283,24 +323,14 @@ export default function CatalogPage() {
 
           <main>
             {err && (
-              <div
-                className="card"
-                style={{
-                  padding: 14,
-                  marginBottom: 14,
-                  borderColor: "rgba(255,80,80,.35)",
-                  background: "rgba(255,80,80,.08)",
-                }}
-              >
+              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
                 <div style={{ fontWeight: 900 }}>Error</div>
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
               </div>
             )}
 
             {loading ? (
-              <div className="card" style={{ padding: 18 }}>
-                Loading…
-              </div>
+              <div className="card" style={{ padding: 18 }}>Loading…</div>
             ) : filtered.length === 0 ? (
               <div className="card" style={{ padding: 18 }}>
                 <div style={{ fontWeight: 900 }}>No results</div>
@@ -312,51 +342,25 @@ export default function CatalogPage() {
                   const img = getImageSrc(p);
                   const link = getLinkUrl(p);
                   const title = getProductName(p);
-                  const desc = (p.description || "").toString();
+                  const desc = getDescription(p);
 
                   const fields = getFields(p);
 
-                  // filter out common/system keys that should not show as “extra fields”
                   const hiddenKeys = new Set([
-                    "id",
-                    "name",
-                    "title",
-                    "description",
-                    "image",
-                    "imageUrl",
-                    "image_url",
-                    "imagePath",
-                    "image_path",
-                    "upload",
-                    "link",
-                    "linkUrl",
-                    "link_url",
-                    "url",
-                    "tags",
-                    "category",
-                    "createdAt",
-                    "created_at",
+                    "id","name","title","description","desc",
+                    "image","imageUrl","image_url","imagePath","image_path","upload","file","filename","photo","picture",
+                    "link","linkUrl","link_url","url","href","website","buttonUrl","shop","buy","target",
+                    "tags","category","createdAt","created_at"
                   ]);
 
-                  const meta = fields && typeof fields === "object"
-                    ? Object.entries(fields)
-                        .filter(([k, v]) => !hiddenKeys.has(k))
-                        .filter(([_, v]) => v !== null && v !== undefined && `${v}`.trim() !== "")
-                        .slice(0, 8)
-                    : [];
+                  const meta = Object.entries(fields)
+                    .filter(([k, v]) => !hiddenKeys.has(k))
+                    .filter(([_, v]) => v !== null && v !== undefined && `${v}`.trim() !== "")
+                    .slice(0, 10);
 
                   return (
                     <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                      <div
-                        style={{
-                          height: 160,
-                          background: "rgba(255,255,255,.04)",
-                          borderBottom: "1px solid var(--border)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
+                      <div style={{ height: 160, background: "rgba(255,255,255,.04)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                         {img ? (
                           <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
@@ -377,16 +381,7 @@ export default function CatalogPage() {
                         {meta.length ? (
                           <div style={{ display: "grid", gap: 6 }}>
                             {meta.map(([k, v]) => (
-                              <div
-                                key={k}
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 10,
-                                  fontSize: 12,
-                                  color: "var(--muted)",
-                                }}
-                              >
+                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
                                 <span style={{ opacity: 0.9 }}>{k}</span>
                                 <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{String(v)}</span>
                               </div>
