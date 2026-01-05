@@ -9,6 +9,7 @@ RUN npm install
 
 COPY next.config.js tsconfig.json ./
 COPY src ./src
+COPY public ./public
 
 ARG NEXT_PUBLIC_API_BASE
 ENV NEXT_PUBLIC_API_BASE=$NEXT_PUBLIC_API_BASE
