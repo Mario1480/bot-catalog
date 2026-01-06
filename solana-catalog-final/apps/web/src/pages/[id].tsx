@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
-import { AppHeader } from "../../components/AppHeader";
-import { apiFetch } from "../../lib/api";
+import { AppHeader } from "../components/AppHeader";
+import { apiFetch } from "../lib/api";
 
 type Product = {
   id: string;
