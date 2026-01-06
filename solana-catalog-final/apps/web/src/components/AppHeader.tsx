@@ -78,7 +78,7 @@ export function AppHeader() {
                   maxWidth: 220,
                 }}
               >
-                Token-gated Bot Catalog
+                Bot Catalog 
               </div>
             </div>
           </Link>

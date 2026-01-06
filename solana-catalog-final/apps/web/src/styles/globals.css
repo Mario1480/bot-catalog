@@ -4,7 +4,7 @@
   --card: #101826;
   --text: #e8eef7;
   --muted: rgba(232,238,247,.7);
-  --border: rgba(255,255,255,.10);
+  --border: #FFC107;
 }
 
 html, body {
