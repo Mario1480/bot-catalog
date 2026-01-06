@@ -2,40 +2,55 @@ import { useMemo } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
+function shortAddr(addr: string) {
+  return `${addr.slice(0, 4)}…${addr.slice(-4)}`;
+}
+
 export function WalletConnect() {
   const { connected, publicKey, disconnect } = useWallet();
 
-  // helps some setups update the label immediately
-  const btnKey = useMemo(
-    () => (publicKey ? publicKey.toBase58() : "disconnected"),
-    [publicKey]
-  );
+  // English comment: Derive label from publicKey so it updates immediately after connect.
+  const addressLabel = useMemo(() => {
+    if (!publicKey) return "";
+    return shortAddr(publicKey.toBase58());
+  }, [publicKey]);
 
   async function handleDisconnect() {
     try {
-      // ✅ always clear auth first
       localStorage.removeItem("user_jwt");
-      localStorage.removeItem("admin_jwt"); // optional, if you use it
     } catch {}
 
     try {
-      if (connected) await disconnect();
+      await disconnect();
     } catch {}
 
-    // ✅ force clean state
     window.location.href = "/";
   }
 
   return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-      <WalletMultiButton key={btnKey} />
+    <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Keep the official button to ensure Phantom opens reliably */}
+      <WalletMultiButton />
+
+      {/* Show address immediately (independent from WalletMultiButton internal label updates) */}
+      {connected && addressLabel && (
+        <div
+          className="badge"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "8px 10px",
+          }}
+          title={publicKey?.toBase58()}
+        >
+          <span className="badgeDot" style={{ background: "var(--brand)" }} />
+          {addressLabel}
+        </div>
+      )}
 
       {connected && (
-        <button
-          onClick={handleDisconnect}
-          className="btn"
-          style={{ padding: "10px 12px" }}
-        >
+        <button className="btn" onClick={handleDisconnect}>
           Disconnect
         </button>
       )}
