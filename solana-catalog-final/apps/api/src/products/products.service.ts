@@ -1,60 +1,116 @@
-import { query } from "../db.js";
+import { query } from "../db";
 
-export async function listProducts(params: {
-  search?: string;
-  filters?: Record<string, string>;
+// ...
+
+export async function listProducts({
+  q,
+  tags,
+  fields,
+  status = "published",
+  page = 1,
+  limit = 50,
+}: {
+  q?: string;
+  tags?: string[];
+  fields?: Record<string, string>;
+  status?: string;
   page?: number;
-  pageSize?: number;
+  limit?: number;
 }) {
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(50, Math.max(1, params.pageSize ?? 12));
-  const offset = (page - 1) * pageSize;
+  const offset = (Math.max(page, 1) - 1) * limit;
 
-  const values: any[] = [];
-  let where = `p.status = 'published'`;
+  const where: string[] = [];
+  const params: any[] = [];
 
-  if (params.search) {
-    values.push(params.search);
-    where += ` AND p.search_vector @@ plainto_tsquery('simple', $${values.length})`;
+  // Status filter
+  if (status) {
+    params.push(status);
+    where.push(`p.status = $${params.length}`);
   }
 
-  const filterEntries = Object.entries(params.filters ?? {});
-  filterEntries.forEach(([k, v]) => {
-    values.push(k, v);
-    const kIdx = values.length - 1;
-    const vIdx = values.length;
-    where += ` AND EXISTS (
-      SELECT 1 FROM product_fields f
-      WHERE f.product_id = p.id AND f.key = $${kIdx} AND f.value = $${vIdx}
-    )`;
-  });
+  // q search
+  if (q) {
+    params.push(`%${q}%`);
+    where.push(`(p.title ILIKE $${params.length} OR p.search_extra ILIKE $${params.length})`);
+  }
 
-  values.push(pageSize, offset);
+  // tags filter (requires product_tags join)
+  if (tags && tags.length) {
+    params.push(tags);
+    where.push(`
+      EXISTS (
+        SELECT 1 FROM product_tags pt
+        WHERE pt.product_id = p.id
+          AND pt.tag = ANY($${params.length})
+      )
+    `);
+  }
 
-  const rows = await query<any>(
+  // fields filter: key/value exact match
+  if (fields && Object.keys(fields).length) {
+    for (const [k, v] of Object.entries(fields)) {
+      params.push(k);
+      params.push(v);
+      where.push(`
+        EXISTS (
+          SELECT 1 FROM product_fields pf
+          WHERE pf.product_id = p.id
+            AND pf.key = $${params.length - 1}
+            AND pf.value = $${params.length}
+        )
+      `);
+    }
+  }
+
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  const rows = await query(
     `
     SELECT p.id, p.title, p.description, p.image_url, p.target_url, p.status, p.updated_at
     FROM products p
-    WHERE ${where}
+    ${whereSql}
     ORDER BY p.updated_at DESC
-    LIMIT $${values.length - 1} OFFSET $${values.length}
+    LIMIT $${params.length + 1}
+    OFFSET $${params.length + 2}
     `,
-    values
+    [...params, limit, offset]
   );
 
-  return rows;
-}
+  if (!rows.length) return [];
 
-export async function getFilters() {
-  // English comment: Returns available filter keys and values for UI.
-  const rows = await query<{ key: string; value: string }>(
-    `SELECT key, value FROM product_fields GROUP BY key, value ORDER BY key, value`
+  const ids = rows.map((r: any) => r.id);
+
+  const fieldRows = await query(
+    `SELECT product_id, key, value FROM product_fields WHERE product_id = ANY($1::uuid[])`,
+    [ids]
   );
 
-  const out: Record<string, string[]> = {};
-  for (const r of rows) {
-    out[r.key] = out[r.key] ?? [];
-    out[r.key].push(r.value);
+  const tagRows = await query(
+    `SELECT product_id, tag FROM product_tags WHERE product_id = ANY($1::uuid[])`,
+    [ids]
+  );
+
+  // Build fields map with duplicate-key support => arrays
+  const fieldsMap: Record<string, Record<string, any>> = {};
+  for (const fr of fieldRows) {
+    const pid = fr.product_id;
+    fieldsMap[pid] ||= {};
+    const curr = fieldsMap[pid][fr.key];
+
+    if (curr === undefined) fieldsMap[pid][fr.key] = fr.value;
+    else if (Array.isArray(curr)) fieldsMap[pid][fr.key] = [...curr, fr.value];
+    else fieldsMap[pid][fr.key] = [curr, fr.value];
   }
-  return out;
+
+  const tagsMap: Record<string, string[]> = {};
+  for (const tr of tagRows) {
+    tagsMap[tr.product_id] ||= [];
+    tagsMap[tr.product_id].push(tr.tag);
+  }
+
+  return rows.map((p: any) => ({
+    ...p,
+    fields: fieldsMap[p.id] || {},
+    tags: tagsMap[p.id] || [],
+  }));
 }

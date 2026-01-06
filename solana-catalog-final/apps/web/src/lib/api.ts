@@ -1,16 +1,10 @@
 // English comment: Hard fallback to avoid broken client bundles
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE ||
-  (typeof window !== "undefined"
-    ? "https://api.utrade.vip"
-    : "https://api.utrade.vip");
+  (typeof window !== "undefined" ? "https://api.utrade.vip" : "https://api.utrade.vip");
 
 // English comment: Fetch helper that safely parses JSON only when applicable.
-export async function apiFetch(
-  path: string,
-  options: RequestInit = {},
-  token?: string
-) {
+export async function apiFetch(path: string, options: RequestInit = {}, token?: string) {
   const headers = new Headers(options.headers || {});
 
   if (!(options.body instanceof FormData)) {
@@ -32,9 +26,9 @@ export async function apiFetch(
 
   if (!res.ok) {
     const msg =
-      (typeof data === "object" && data && data.error)
+      typeof data === "object" && data && data.error
         ? data.error
-        : (typeof data === "string" && data)
+        : typeof data === "string" && data
         ? data
         : `Request failed: ${res.status}`;
     throw new Error(msg);
@@ -43,8 +37,6 @@ export async function apiFetch(
   return data;
 }
 
-// English comment: Expose API base for places that need absolute URLs (e.g. CSV import/export).
 export function apiBase() {
   return API_BASE;
 }
-
