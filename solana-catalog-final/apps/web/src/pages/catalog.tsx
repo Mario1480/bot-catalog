@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
-import { WalletConnect } from "../components/WalletConnect";
 import { apiFetch } from "../lib/api";
 
 type Product = {
@@ -9,8 +8,8 @@ type Product = {
   // API fields
   title?: string;
   description?: string;
-  image_url?: string;   // <-- your API
-  target_url?: string;  // <-- your API
+  image_url?: string;
+  target_url?: string;
   status?: string;
   updated_at?: string;
 
@@ -39,19 +38,13 @@ function resolveImageSrc(raw: string) {
   const u = (raw || "").trim();
   if (!u) return "";
 
-  // absolute URLs direkt
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
 
-  // API base (gleich wie apiFetch)
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip";
 
-  // wenn API "/uploads/..." liefert → über api.utrade.vip ausliefern
   if (u.startsWith("/uploads/")) return `${API_BASE}${u}`;
-
-  // falls nur Dateiname gespeichert wurde
   if (!u.startsWith("/")) return `${API_BASE}/uploads/${u}`;
 
-  // andere absolute Pfade ebenfalls über API laufen lassen
   return `${API_BASE}${u}`;
 }
 
@@ -61,7 +54,6 @@ function resolveLink(raw: string) {
   if (!u) return "";
   if (u.startsWith("http://") || u.startsWith("https://")) return u;
   if (u.startsWith("www.")) return `https://${u}`;
-  // If it's a relative path on the same domain, keep it
   if (u.startsWith("/")) return u;
   return `https://${u}`;
 }
@@ -70,7 +62,6 @@ function resolveLink(raw: string) {
 function buildExtraFields(p: Product) {
   const out: Array<[string, any]> = [];
 
-  // If later you add "fields" as JSON/object, show it.
   if (p.fields && typeof p.fields === "object") {
     for (const [k, v] of Object.entries(p.fields)) {
       if (v === null || v === undefined || `${v}`.trim() === "") continue;
@@ -93,7 +84,9 @@ export default function CatalogPage() {
   const [selectedTag, setSelectedTag] = useState("All");
 
   useEffect(() => {
-    const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+    const jwt =
+      typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+
     if (!jwt) {
       window.location.href = "/";
       return;
@@ -105,7 +98,7 @@ export default function CatalogPage() {
         setErr("");
 
         const out = await apiFetch("/products", { method: "GET" }, jwt);
-        const items = Array.isArray(out) ? out : (out?.items || out?.products || []);
+        const items = Array.isArray(out) ? out : out?.items || out?.products || [];
         setProducts(items);
       } catch (e: any) {
         const msg = e?.message || "Failed to load products";
@@ -139,15 +132,18 @@ export default function CatalogPage() {
       const desc = normalizeText(p.description);
 
       const matchQ = !qq || title.includes(qq) || desc.includes(qq);
-
       const matchCategory = selectedCategory === "All";
       const matchTag = selectedTag === "All";
 
       return matchQ && matchCategory && matchTag;
     });
 
-    if (sort === "az") list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
-    if (sort === "za") list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
+    if (sort === "az") {
+      list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
+    }
+    if (sort === "za") {
+      list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
+    }
     if (sort === "newest") {
       list = list.sort((a, b) => {
         const da = new Date(a.updated_at || a.createdAt || 0).getTime();
@@ -165,18 +161,31 @@ export default function CatalogPage() {
 
       <div className="container">
         <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexWrap: "wrap",
+            }}
+          >
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
+              <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>
+                Catalog
+              </div>
               <div style={{ color: "var(--muted)", fontSize: 13 }}>
                 {loading ? "Loading products…" : `${filtered.length} item(s)`}
               </div>
             </div>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <WalletConnect />
-
-              <select className="input" style={{ width: 180 }} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+              <select
+                className="input"
+                style={{ width: 180 }}
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortKey)}
+              >
                 <option value="newest">Sort: Newest</option>
                 <option value="az">Sort: A → Z</option>
                 <option value="za">Sort: Z → A</option>
@@ -188,7 +197,12 @@ export default function CatalogPage() {
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
           <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
-            <input className="input" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input
+              className="input"
+              placeholder="Search products…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
 
             <div style={{ height: 14 }} />
 
@@ -196,19 +210,35 @@ export default function CatalogPage() {
 
             <div style={{ display: "grid", gap: 10 }}>
               <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
-                <select className="input" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                  Category
+                </div>
+                <select
+                  className="input"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                >
                   {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
                   ))}
                 </select>
               </div>
 
               <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
-                <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                  Tag
+                </div>
+                <select
+                  className="input"
+                  value={selectedTag}
+                  onChange={(e) => setSelectedTag(e.target.value)}
+                >
                   {tags.map((t) => (
-                    <option key={t} value={t}>{t}</option>
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
                   ))}
                 </select>
               </div>
@@ -236,18 +266,30 @@ export default function CatalogPage() {
 
           <main>
             {err && (
-              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
+              <div
+                className="card"
+                style={{
+                  padding: 14,
+                  marginBottom: 14,
+                  borderColor: "rgba(255,80,80,.35)",
+                  background: "rgba(255,80,80,.08)",
+                }}
+              >
                 <div style={{ fontWeight: 900 }}>Error</div>
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
               </div>
             )}
 
             {loading ? (
-              <div className="card" style={{ padding: 18 }}>Loading…</div>
+              <div className="card" style={{ padding: 18 }}>
+                Loading…
+              </div>
             ) : filtered.length === 0 ? (
               <div className="card" style={{ padding: 18 }}>
                 <div style={{ fontWeight: 900 }}>No results</div>
-                <div style={{ color: "var(--muted)", marginTop: 6 }}>Try a different search or reset filters.</div>
+                <div style={{ color: "var(--muted)", marginTop: 6 }}>
+                  Try a different search or reset filters.
+                </div>
               </div>
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
@@ -259,7 +301,15 @@ export default function CatalogPage() {
                   const extra = buildExtraFields(p);
 
                   return (
-                    <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                    <div
+                      key={p.id}
+                      className="card"
+                      style={{
+                        overflow: "hidden",
+                        display: "flex",
+                        flexDirection: "column",
+                      }}
+                    >
                       <div
                         style={{
                           height: 160,
@@ -271,7 +321,11 @@ export default function CatalogPage() {
                         }}
                       >
                         {img ? (
-                          <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <img
+                            src={img}
+                            alt={title}
+                            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                          />
                         ) : (
                           <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
                         )}
@@ -279,7 +333,9 @@ export default function CatalogPage() {
 
                       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                         <div>
-                          <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
+                          <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>
+                            {title}
+                          </div>
                           {desc ? (
                             <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>
                               {desc.length > 140 ? desc.slice(0, 140) + "…" : desc}
@@ -290,9 +346,20 @@ export default function CatalogPage() {
                         {extra.length ? (
                           <div style={{ display: "grid", gap: 6 }}>
                             {extra.map(([k, v]) => (
-                              <div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, color: "var(--muted)" }}>
+                              <div
+                                key={k}
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  fontSize: 12,
+                                  color: "var(--muted)",
+                                }}
+                              >
                                 <span style={{ opacity: 0.9 }}>{k}</span>
-                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>{String(v)}</span>
+                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>
+                                  {String(v)}
+                                </span>
                               </div>
                             ))}
                           </div>
@@ -302,11 +369,21 @@ export default function CatalogPage() {
 
                         <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
                           {link ? (
-                            <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
+                            <a
+                              className="btn btnPrimary"
+                              href={link}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ width: "100%" }}
+                            >
                               Open
                             </a>
                           ) : (
-                            <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
+                            <button
+                              className="btn"
+                              disabled
+                              style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}
+                            >
                               No link
                             </button>
                           )}

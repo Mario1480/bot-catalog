@@ -2,27 +2,32 @@ import { useEffect, useRef, useState } from "react";
 import bs58 from "bs58";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AppHeader } from "../components/AppHeader";
-import { WalletConnect } from "../components/WalletConnect";
 import { apiFetch } from "../lib/api";
 
 export default function Home() {
   const wallet = useWallet();
 
-  const [status, setStatus] = useState<string>("Connect your wallet to access the catalog.");
+  const [status, setStatus] = useState<string>(
+    "Connect your wallet to access the catalog."
+  );
   const [loading, setLoading] = useState(false);
 
-  // English comment: Prevent repeated auth attempts in the same session / render loop.
+  // Prevent repeated auth loops
   const authInFlightRef = useRef(false);
   const lastAuthedPubkeyRef = useRef<string | null>(null);
 
-  // English comment: If user already has a JWT, go straight to catalog.
+  // If JWT already exists → go straight to catalog
   useEffect(() => {
-    const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
-    if (token) window.location.href = "/catalog";
+    const token =
+      typeof window !== "undefined"
+        ? localStorage.getItem("user_jwt")
+        : null;
+    if (token) {
+      window.location.href = "/catalog";
+    }
   }, []);
 
   useEffect(() => {
-    // English comment: Only start auth flow after a successful wallet connection.
     if (!wallet.connected) {
       authInFlightRef.current = false;
       lastAuthedPubkeyRef.current = null;
@@ -33,18 +38,16 @@ export default function Home() {
 
     if (!wallet.publicKey) return;
 
-    // English comment: Some wallets/providers may not support message signing.
     if (!wallet.signMessage) {
-      setStatus("Your wallet does not support message signing. Please use Phantom (or a wallet that supports signMessage).");
+      setStatus(
+        "Your wallet does not support message signing. Please use Phantom."
+      );
       return;
     }
 
     const pubkey = wallet.publicKey.toBase58();
 
-    // English comment: Avoid re-authing on re-renders if we already authed this pubkey.
     if (lastAuthedPubkeyRef.current === pubkey) return;
-
-    // English comment: Prevent concurrent auth calls.
     if (authInFlightRef.current) return;
 
     (async () => {
@@ -54,16 +57,25 @@ export default function Home() {
         setLoading(true);
         setStatus("Requesting nonce…");
 
-        const { message } = await apiFetch(`/auth/nonce?pubkey=${pubkey}`, { method: "GET" });
+        const { message } = await apiFetch(
+          `/auth/nonce?pubkey=${pubkey}`,
+          { method: "GET" }
+        );
 
         setStatus("Signing message…");
-        const sig = await wallet.signMessage(new TextEncoder().encode(message));
+        const sig = await wallet.signMessage(
+          new TextEncoder().encode(message)
+        );
         const signatureBase58 = bs58.encode(sig);
 
         setStatus("Verifying token gate…");
         const out = await apiFetch(`/auth/verify`, {
           method: "POST",
-          body: JSON.stringify({ pubkey, signature: signatureBase58, message }),
+          body: JSON.stringify({
+            pubkey,
+            signature: signatureBase58,
+            message,
+          }),
         });
 
         localStorage.setItem("user_jwt", out.token);
@@ -72,10 +84,8 @@ export default function Home() {
         setStatus("Access granted. Redirecting…");
         window.location.href = "/catalog";
       } catch (e: any) {
-        // English comment: Reset guard so user can retry without refresh.
         lastAuthedPubkeyRef.current = null;
-        const msg = e?.message || "Auth failed";
-        setStatus(msg);
+        setStatus(e?.message || "Authentication failed");
       } finally {
         authInFlightRef.current = false;
         setLoading(false);
@@ -102,19 +112,23 @@ export default function Home() {
                 uTrade Bot Catalog
               </h1>
 
-              <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.5 }}>
-                Connect your wallet to unlock the catalog. Access is determined by the configured mint + minimum amount or USD value.
+              <p
+                style={{
+                  marginTop: 10,
+                  color: "var(--muted)",
+                  lineHeight: 1.5,
+                }}
+              >
+                Connect your wallet using the button above to unlock the catalog.
               </p>
 
-              <div style={{ marginTop: 14 }}>
-                <WalletConnect />
-              </div>
-
-              <div className="badge" style={{ marginTop: 14 }}>
+              <div className="badge" style={{ marginTop: 16 }}>
                 <span
                   className="badgeDot"
                   style={{
-                    background: loading ? "var(--brand)" : "rgba(232,238,247,.35)",
+                    background: loading
+                      ? "var(--brand)"
+                      : "rgba(232,238,247,.35)",
                   }}
                 />
                 {loading ? "Working…" : status}
@@ -130,8 +144,14 @@ export default function Home() {
               }}
             >
               <div style={{ fontWeight: 800 }}>How it works</div>
-              <ol style={{ margin: "10px 0 0 18px", color: "var(--muted)", lineHeight: 1.6 }}>
-                <li>Connect wallet</li>
+              <ol
+                style={{
+                  margin: "10px 0 0 18px",
+                  color: "var(--muted)",
+                  lineHeight: 1.6,
+                }}
+              >
+                <li>Connect wallet (top right)</li>
                 <li>Sign a message</li>
                 <li>We verify token balance/value</li>
                 <li>Catalog unlocks automatically</li>
