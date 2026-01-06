@@ -1,7 +1,8 @@
 import { query } from "../db";
 
-// ...
-
+// List products with optional search + tag + fields filters.
+// Also attaches tags + fields to each product.
+// Note: Duplicate keys in product_fields (e.g. multiple "category") become arrays.
 export async function listProducts({
   q,
   tags,
@@ -28,13 +29,15 @@ export async function listProducts({
     where.push(`p.status = $${params.length}`);
   }
 
-  // q search
+  // q search (title + search_extra if you have it)
   if (q) {
     params.push(`%${q}%`);
-    where.push(`(p.title ILIKE $${params.length} OR p.search_extra ILIKE $${params.length})`);
+    where.push(
+      `(p.title ILIKE $${params.length} OR COALESCE(p.search_extra,'') ILIKE $${params.length})`
+    );
   }
 
-  // tags filter (requires product_tags join)
+  // tags filter
   if (tags && tags.length) {
     params.push(tags);
     where.push(`
@@ -113,4 +116,33 @@ export async function listProducts({
     fields: fieldsMap[p.id] || {},
     tags: tagsMap[p.id] || [],
   }));
+}
+
+// Returns available filter values for the UI (categories + tags)
+export async function getFilters() {
+  const categoryRows = await query(
+    `
+    SELECT DISTINCT pf.value AS category
+    FROM product_fields pf
+    WHERE pf.key = 'category'
+      AND pf.value IS NOT NULL
+      AND pf.value <> ''
+    ORDER BY pf.value ASC
+    `
+  );
+
+  const tagRows = await query(
+    `
+    SELECT DISTINCT pt.tag AS tag
+    FROM product_tags pt
+    WHERE pt.tag IS NOT NULL
+      AND pt.tag <> ''
+    ORDER BY pt.tag ASC
+    `
+  );
+
+  return {
+    categories: categoryRows.map((r: any) => String(r.category)),
+    tags: tagRows.map((r: any) => String(r.tag)),
+  };
 }

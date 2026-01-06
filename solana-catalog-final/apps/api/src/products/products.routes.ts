@@ -5,7 +5,6 @@ import { verifyUserJwt } from "../auth/jwt.js";
 export const productsRouter = Router();
 
 function requireUser(req: any, res: any, next: any) {
-  // English comment: Simple Bearer JWT for gated endpoints.
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) return res.status(401).json({ error: "Missing token" });
@@ -18,25 +17,35 @@ function requireUser(req: any, res: any, next: any) {
   }
 }
 
+// GET /products/filters
 productsRouter.get("/filters", requireUser, async (_req, res) => {
   res.json(await getFilters());
 });
 
+// GET /products?search=...&filters[key]=value&page=1&pageSize=12
 productsRouter.get("/", requireUser, async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
 
-  // English comment: Expect filters as ?filters[key]=value (Next.js style).
+  // Expect filters as ?filters[key]=value (Next.js style)
   const rawFilters = (req.query.filters ?? {}) as any;
   const filters: Record<string, string> = {};
 
   if (rawFilters && typeof rawFilters === "object") {
     for (const [k, v] of Object.entries(rawFilters)) {
-      if (typeof v === "string") filters[k] = v;
+      if (typeof v === "string" && v.trim() !== "") filters[k] = v;
     }
   }
 
   const page = req.query.page ? Number(req.query.page) : 1;
   const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 12;
 
-  res.json(await listProducts({ search, filters, page, pageSize }));
+  res.json(
+    await listProducts({
+      q: search,
+      fields: filters,
+      page,
+      limit: pageSize,
+      status: "published",
+    })
+  );
 });
