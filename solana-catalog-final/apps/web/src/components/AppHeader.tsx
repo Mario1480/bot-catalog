@@ -22,6 +22,7 @@ export function AppHeader() {
           alignItems: "center",
           justifyContent: "space-between",
           gap: 12,
+          flexWrap: "wrap",
         }}
       >
         <Link
@@ -31,7 +32,6 @@ export function AppHeader() {
             alignItems: "center",
             gap: 12,
             textDecoration: "none",
-            minWidth: 220,
           }}
         >
           <img
@@ -47,10 +47,8 @@ export function AppHeader() {
           </div>
         </Link>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          {/* Wallet button stays globally in header */}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           <WalletConnect />
-
           <Link className="btn" href="/catalog">
             Catalog
           </Link>
