@@ -1,68 +1,135 @@
 import { query } from "../db";
 
-// List products with optional search + tag + fields filters.
-// Also attaches tags + fields to each product.
-// Note: Duplicate keys in product_fields (e.g. multiple "category") become arrays.
+type ListArgs = {
+  search?: string;
+  filters?: Record<string, string | string[]>;
+  page?: number;
+  pageSize?: number;
+  status?: string;
+};
+
+export async function getFilters() {
+  // Categories = product_fields where key='category' (can be multiple per product)
+  const categories = await query(
+    `SELECT DISTINCT value AS category
+     FROM product_fields
+     WHERE key = 'category'
+     ORDER BY value ASC`,
+    []
+  );
+
+  const tags = await query(
+    `SELECT DISTINCT tag
+     FROM product_tags
+     ORDER BY tag ASC`,
+    []
+  );
+
+  // all possible field keys (excluding category)
+  const fieldKeys = await query(
+    `SELECT DISTINCT key
+     FROM product_fields
+     WHERE key <> 'category'
+     ORDER BY key ASC`,
+    []
+  );
+
+  return {
+    categories: categories.map((r: any) => r.category),
+    tags: tags.map((r: any) => r.tag),
+    fieldKeys: fieldKeys.map((r: any) => r.key),
+  };
+}
+
 export async function listProducts({
-  q,
-  tags,
-  fields,
+  search,
+  filters = {},
   status = "published",
   page = 1,
-  limit = 50,
-}: {
-  q?: string;
-  tags?: string[];
-  fields?: Record<string, string>;
-  status?: string;
-  page?: number;
-  limit?: number;
-}) {
+  pageSize = 50,
+}: ListArgs) {
+  const limit = Math.min(Math.max(pageSize, 1), 200);
   const offset = (Math.max(page, 1) - 1) * limit;
 
   const where: string[] = [];
   const params: any[] = [];
 
-  // Status filter
+  // Status
   if (status) {
     params.push(status);
     where.push(`p.status = $${params.length}`);
   }
 
-  // q search (title + search_extra if you have it)
-  if (q) {
-    params.push(`%${q}%`);
+  // Search (title/description/search_extra)
+  if (search) {
+    params.push(`%${search}%`);
     where.push(
-      `(p.title ILIKE $${params.length} OR COALESCE(p.search_extra,'') ILIKE $${params.length})`
+      `(p.title ILIKE $${params.length} OR p.description ILIKE $${params.length} OR p.search_extra ILIKE $${params.length})`
     );
   }
 
-  // tags filter
-  if (tags && tags.length) {
-    params.push(tags);
-    where.push(`
-      EXISTS (
-        SELECT 1 FROM product_tags pt
-        WHERE pt.product_id = p.id
-          AND pt.tag = ANY($${params.length})
-      )
-    `);
-  }
+  /**
+   * filters:
+   * - category: string | string[]
+   * - tag: string | string[]   (or tags)
+   * - any other key: field match in product_fields (exact)
+   */
+  const categoryFilter = filters["category"];
+  const tagFilter = filters["tag"] ?? filters["tags"];
 
-  // fields filter: key/value exact match
-  if (fields && Object.keys(fields).length) {
-    for (const [k, v] of Object.entries(fields)) {
-      params.push(k);
-      params.push(v);
+  // category filter (multi)
+  if (categoryFilter) {
+    const cats = Array.isArray(categoryFilter) ? categoryFilter : [categoryFilter];
+    if (cats.length) {
+      params.push(cats);
       where.push(`
         EXISTS (
-          SELECT 1 FROM product_fields pf
+          SELECT 1
+          FROM product_fields pf
           WHERE pf.product_id = p.id
-            AND pf.key = $${params.length - 1}
-            AND pf.value = $${params.length}
+            AND pf.key = 'category'
+            AND pf.value = ANY($${params.length})
         )
       `);
     }
+  }
+
+  // tag filter (multi)
+  if (tagFilter) {
+    const tags = Array.isArray(tagFilter) ? tagFilter : [tagFilter];
+    if (tags.length) {
+      params.push(tags);
+      where.push(`
+        EXISTS (
+          SELECT 1
+          FROM product_tags pt
+          WHERE pt.product_id = p.id
+            AND pt.tag = ANY($${params.length})
+        )
+      `);
+    }
+  }
+
+  // other field filters
+  for (const [k, v] of Object.entries(filters)) {
+    if (k === "category" || k === "tag" || k === "tags") continue;
+    if (v === null || v === undefined) continue;
+
+    const values = Array.isArray(v) ? v : [v];
+    if (!values.length) continue;
+
+    params.push(k);
+    params.push(values);
+
+    where.push(`
+      EXISTS (
+        SELECT 1
+        FROM product_fields pf
+        WHERE pf.product_id = p.id
+          AND pf.key = $${params.length - 1}
+          AND pf.value = ANY($${params.length})
+      )
+    `);
   }
 
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
@@ -116,33 +183,4 @@ export async function listProducts({
     fields: fieldsMap[p.id] || {},
     tags: tagsMap[p.id] || [],
   }));
-}
-
-// Returns available filter values for the UI (categories + tags)
-export async function getFilters() {
-  const categoryRows = await query(
-    `
-    SELECT DISTINCT pf.value AS category
-    FROM product_fields pf
-    WHERE pf.key = 'category'
-      AND pf.value IS NOT NULL
-      AND pf.value <> ''
-    ORDER BY pf.value ASC
-    `
-  );
-
-  const tagRows = await query(
-    `
-    SELECT DISTINCT pt.tag AS tag
-    FROM product_tags pt
-    WHERE pt.tag IS NOT NULL
-      AND pt.tag <> ''
-    ORDER BY pt.tag ASC
-    `
-  );
-
-  return {
-    categories: categoryRows.map((r: any) => String(r.category)),
-    tags: tagRows.map((r: any) => String(r.tag)),
-  };
 }
