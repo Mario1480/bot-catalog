@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { apiFetch } from "../lib/api";
+import Link from "next/link";
 
 type Product = {
   id: string;
@@ -103,11 +104,8 @@ function buildExtraFields(p: Product) {
     if (known.has(k)) continue;
     if (v === null || v === undefined || `${v}`.trim() === "") continue;
 
-    if (typeof v === "object") {
-      out.push([k, JSON.stringify(v)]);
-    } else {
-      out.push([k, v]);
-    }
+    if (typeof v === "object") out.push([k, JSON.stringify(v)]);
+    else out.push([k, v]);
   }
 
   // Deduplizieren
@@ -119,7 +117,7 @@ function buildExtraFields(p: Product) {
     deduped.push([k, v]);
   }
 
-  return deduped.slice(0, 10);
+  return deduped.slice(0, 50); // im Modal ruhig mehr zeigen
 }
 
 // ✅ Central helper: treat token problems consistently
@@ -147,6 +145,9 @@ export default function CatalogPage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
 
+  // ✅ Modal state
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
   useEffect(() => {
     const jwt =
       typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
@@ -168,14 +169,10 @@ export default function CatalogPage() {
         const msg = (e?.message || "Failed to load products").toString();
         setErr(msg);
 
-        // ✅ Fix: also handle "Invalid token" etc.
         if (isAuthErrorMessage(msg)) {
           try {
             localStorage.removeItem("user_jwt");
           } catch {}
-
-          // best effort: if wallet injected providers are connected elsewhere,
-          // the header disconnect button is the proper UX. Here we just hard reset.
           window.location.href = "/";
           return;
         }
@@ -379,7 +376,7 @@ export default function CatalogPage() {
                   const link = resolveLink(p.target_url || p.linkUrl || "");
                   const title = getProductName(p);
                   const desc = (p.description || "").toString();
-                  const extra = buildExtraFields(p);
+                  const extra = buildExtraFields(p).slice(0, 6); // in der Card kompakt
 
                   return (
                     <div
@@ -469,7 +466,16 @@ export default function CatalogPage() {
                           <div style={{ color: "var(--muted)", fontSize: 12 }}>No extra fields</div>
                         )}
 
-                        <div style={{ display: "flex", gap: 10, marginTop: "auto" }}>
+                        {/* ✅ Buttons: Details oben, Open bleibt */}
+                        <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
+                          <button
+                            className="btn"
+                            style={{ width: "100%" }}
+                            onClick={() => setSelectedProduct(p)}
+                          >
+                            Details
+                          </button>
+
                           {link ? (
                             <a
                               className="btn btnPrimary"
@@ -499,6 +505,123 @@ export default function CatalogPage() {
           </main>
         </div>
       </div>
+
+      {/* ✅ DETAILS MODAL (same page) */}
+      {selectedProduct && (() => {
+        const title = getProductName(selectedProduct);
+        const img = resolveImageSrc(selectedProduct.image_url || selectedProduct.imageUrl || "");
+        const link = resolveLink(selectedProduct.target_url || selectedProduct.linkUrl || "");
+        const extra = buildExtraFields(selectedProduct);
+
+        return (
+          <div
+            onClick={() => setSelectedProduct(null)}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,.65)",
+              zIndex: 60,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: 16,
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="card"
+              style={{
+                width: "min(980px, 100%)",
+                maxHeight: "90vh",
+                overflow: "auto",
+                padding: 18,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+                <button className="btn" onClick={() => setSelectedProduct(null)}>
+                  ✕
+                </button>
+              </div>
+
+              {img ? (
+                <div style={{ marginTop: 14 }}>
+                  <img
+                    src={img}
+                    alt={title}
+                    style={{
+                      width: "100%",
+                      maxHeight: 420,
+                      objectFit: "cover",
+                      borderRadius: 12,
+                      border: "1px solid var(--border)",
+                    }}
+                  />
+                </div>
+              ) : null}
+
+              {selectedProduct.description ? (
+                <div style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6 }}>
+                  {String(selectedProduct.description)}
+                </div>
+              ) : null}
+
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Fields</div>
+
+                {extra.length ? (
+                  <div className="card" style={{ padding: 12 }}>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {extra.map(([k, v]) => (
+                        <div
+                          key={k}
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "180px 1fr",
+                            gap: 12,
+                            alignItems: "start",
+                          }}
+                        >
+                          <div style={{ color: "var(--muted)", fontSize: 13 }}>{k}</div>
+                          <div style={{ fontSize: 13, wordBreak: "break-word" }}>{String(v)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>No extra fields</div>
+                )}
+              </div>
+
+              <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {link ? (
+                  <a
+                    className="btn btnPrimary"
+                    href={link}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open link
+                  </a>
+                ) : (
+                  <button className="btn" disabled style={{ opacity: 0.55 }}>
+                    No link
+                  </button>
+                )}
+
+                <button className="btn" onClick={() => setSelectedProduct(null)}>
+                  Close
+                </button>
+              </div>
+
+              {/* Optional: Quick jump to admin (falls du willst) */}
+              {/* <div style={{ marginTop: 12, fontSize: 12, color: "var(--muted)" }}>
+                <Link href="/admin/login">Admin</Link>
+              </div> */}
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }
