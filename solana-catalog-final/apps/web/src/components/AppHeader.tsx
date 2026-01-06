@@ -1,7 +1,11 @@
 import Link from "next/link";
+import { useRouter } from "next/router";
 import { WalletConnect } from "./WalletConnect";
 
 export function AppHeader() {
+  const router = useRouter();
+  const isCatalog = router.pathname.startsWith("/catalog");
+
   return (
     <div
       style={{
@@ -16,43 +20,110 @@ export function AppHeader() {
       <div
         className="container"
         style={{
-          paddingTop: 14,
-          paddingBottom: 14,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 12,
-          flexWrap: "wrap",
+          paddingTop: 12,
+          paddingBottom: 12,
         }}
       >
-        <Link
-          href="/"
+        {/* Row 1: Brand left, Wallet right */}
+        <div
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             gap: 12,
-            textDecoration: "none",
           }}
         >
-          <img
-            src="/logo.png"
-            alt="utrade"
-            style={{ width: 34, height: 34, borderRadius: 10 }}
-          />
-          <div style={{ lineHeight: 1.1 }}>
-            <div style={{ fontWeight: 800 }}>utrade.vip</div>
-            <div style={{ fontSize: 12, color: "var(--muted)" }}>
-              Token-gated Bot Catalog
+          <Link
+            href="/"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              textDecoration: "none",
+              minWidth: 0,
+            }}
+          >
+            <img
+              src="/logo.png"
+              alt="utrade"
+              style={{
+                width: 100,
+                height: 35,
+                borderRadius: 0,
+                objectFit: "contain",
+                background: "rgba(255,255,255,.04)",
+                border: "1px solid rgba(255,255,255,.08)",
+                padding: 6,
+              }}
+            />
+            <div style={{ lineHeight: 1.1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontWeight: 900,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: 220,
+                }}
+              >
+                utrade.vip
+              </div>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--muted)",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  maxWidth: 220,
+                }}
+              >
+                Token-gated Bot Catalog
+              </div>
             </div>
-          </div>
-        </Link>
+          </Link>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <WalletConnect />
-          <Link className="btn" href="/catalog">
+          {/* ✅ Wallet always top-right */}
+          <div style={{ flexShrink: 0 }}>
+            <WalletConnect />
+          </div>
+        </div>
+
+        {/* Row 2: Nav (wraps nicely on mobile) */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            marginTop: 10,
+            flexWrap: "wrap",
+          }}
+        >
+          <Link
+            href="/catalog"
+            className="btn"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              fontWeight: 800,
+              background: isCatalog ? "#FFC107" : "transparent",
+              color: isCatalog ? "#111" : "var(--text)",
+              border: isCatalog ? "1px solid rgba(255,193,7,.55)" : "1px solid rgba(255,255,255,.14)",
+            }}
+          >
             Catalog
           </Link>
-          <Link className="btn" href="/admin/login">
+
+          <Link
+            href="/admin/login"
+            className="btn"
+            style={{
+              padding: "10px 14px",
+              borderRadius: 10,
+              fontWeight: 700,
+              border: "1px solid rgba(255,255,255,.14)",
+            }}
+          >
             Admin
           </Link>
         </div>
