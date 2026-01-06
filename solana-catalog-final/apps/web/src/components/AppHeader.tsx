@@ -9,7 +9,7 @@ export function AppHeader() {
   return (
     <div
       style={{
-        borderBottom: "1px solid var(--border)",
+        borderBottom: "0px solid var(--border)",
         background: "rgba(0,0,0,.2)",
         position: "sticky",
         top: 0,

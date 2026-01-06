@@ -21,6 +21,9 @@ type Product = {
   tags?: string[];
   category?: string;
   createdAt?: string;
+
+  // ✅ allow unknown keys coming from API
+  [key: string]: any;
 };
 
 type SortKey = "newest" | "az" | "za";
@@ -59,14 +62,64 @@ function resolveLink(raw: string) {
 function buildExtraFields(p: Product) {
   const out: Array<[string, any]> = [];
 
+  // 1) fields als Objekt oder JSON-String
+  let fieldsObj: Record<string, any> | null = null;
+
   if (p.fields && typeof p.fields === "object") {
-    for (const [k, v] of Object.entries(p.fields)) {
+    fieldsObj = p.fields;
+  } else if (typeof p.fields === "string") {
+    try {
+      const parsed = JSON.parse(p.fields);
+      if (parsed && typeof parsed === "object") fieldsObj = parsed;
+    } catch {}
+  }
+
+  if (fieldsObj) {
+    for (const [k, v] of Object.entries(fieldsObj)) {
       if (v === null || v === undefined || `${v}`.trim() === "") continue;
       out.push([k, v]);
     }
   }
 
-  return out.slice(0, 10);
+  // 2) Alle unbekannten Keys aus dem API-Objekt anzeigen
+  const known = new Set([
+    "id",
+    "title",
+    "description",
+    "image_url",
+    "target_url",
+    "status",
+    "updated_at",
+    "name",
+    "imageUrl",
+    "linkUrl",
+    "fields",
+    "tags",
+    "category",
+    "createdAt",
+  ]);
+
+  for (const [k, v] of Object.entries(p)) {
+    if (known.has(k)) continue;
+    if (v === null || v === undefined || `${v}`.trim() === "") continue;
+
+    if (typeof v === "object") {
+      out.push([k, JSON.stringify(v)]);
+    } else {
+      out.push([k, v]);
+    }
+  }
+
+  // Deduplizieren
+  const seen = new Set<string>();
+  const deduped: Array<[string, any]> = [];
+  for (const [k, v] of out) {
+    if (seen.has(k)) continue;
+    seen.add(k);
+    deduped.push([k, v]);
+  }
+
+  return deduped.slice(0, 10);
 }
 
 // ✅ Central helper: treat token problems consistently
