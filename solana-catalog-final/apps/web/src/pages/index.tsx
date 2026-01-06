@@ -16,15 +16,23 @@ export default function Home() {
   const authInFlightRef = useRef(false);
   const lastAuthedPubkeyRef = useRef<string | null>(null);
 
-  // If JWT already exists → go straight to catalog
+  // ✅ If JWT exists, validate it first. Only then redirect to /catalog.
   useEffect(() => {
-    const token =
-      typeof window !== "undefined"
-        ? localStorage.getItem("user_jwt")
-        : null;
-    if (token) {
-      window.location.href = "/catalog";
-    }
+    (async () => {
+      const token =
+        typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+
+      if (!token) return;
+
+      try {
+        // If this succeeds, token is valid
+        await apiFetch("/products", { method: "GET" }, token);
+        window.location.href = "/catalog";
+      } catch {
+        // Token invalid/expired → remove it and stay on home
+        localStorage.removeItem("user_jwt");
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -57,15 +65,12 @@ export default function Home() {
         setLoading(true);
         setStatus("Requesting nonce…");
 
-        const { message } = await apiFetch(
-          `/auth/nonce?pubkey=${pubkey}`,
-          { method: "GET" }
-        );
+        const { message } = await apiFetch(`/auth/nonce?pubkey=${pubkey}`, {
+          method: "GET",
+        });
 
         setStatus("Signing message…");
-        const sig = await wallet.signMessage(
-          new TextEncoder().encode(message)
-        );
+        const sig = await wallet.signMessage(new TextEncoder().encode(message));
         const signatureBase58 = bs58.encode(sig);
 
         setStatus("Verifying token gate…");
@@ -85,7 +90,14 @@ export default function Home() {
         window.location.href = "/catalog";
       } catch (e: any) {
         lastAuthedPubkeyRef.current = null;
-        setStatus(e?.message || "Authentication failed");
+
+        // ✅ If backend says invalid/unauthorized, wipe token so user can retry cleanly
+        const msg = (e?.message || "Authentication failed").toString();
+        if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) {
+          localStorage.removeItem("user_jwt");
+        }
+
+        setStatus(msg);
       } finally {
         authInFlightRef.current = false;
         setLoading(false);

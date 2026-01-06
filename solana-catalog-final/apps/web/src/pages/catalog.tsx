@@ -33,7 +33,6 @@ function getProductName(p: Product) {
   return (p.title || p.name || "Untitled").toString();
 }
 
-// English comment: Make image path usable for <img>. Supports absolute URLs and /uploads/*.
 function resolveImageSrc(raw: string) {
   const u = (raw || "").trim();
   if (!u) return "";
@@ -48,7 +47,6 @@ function resolveImageSrc(raw: string) {
   return `${API_BASE}${u}`;
 }
 
-// English comment: Normalize link to absolute URL when possible.
 function resolveLink(raw: string) {
   const u = (raw || "").trim();
   if (!u) return "";
@@ -58,7 +56,6 @@ function resolveLink(raw: string) {
   return `https://${u}`;
 }
 
-// English comment: Filter out keys that are not "extra fields".
 function buildExtraFields(p: Product) {
   const out: Array<[string, any]> = [];
 
@@ -70,6 +67,20 @@ function buildExtraFields(p: Product) {
   }
 
   return out.slice(0, 10);
+}
+
+// ✅ Central helper: treat token problems consistently
+function isAuthErrorMessage(msg: string) {
+  const m = (msg || "").toLowerCase();
+  return (
+    m.includes("unauthorized") ||
+    m.includes("invalid token") ||
+    m.includes("jwt") ||
+    m.includes("token expired") ||
+    m.includes("forbidden") ||
+    m.includes("status 401") ||
+    m.includes("status 403")
+  );
 }
 
 export default function CatalogPage() {
@@ -101,12 +112,19 @@ export default function CatalogPage() {
         const items = Array.isArray(out) ? out : out?.items || out?.products || [];
         setProducts(items);
       } catch (e: any) {
-        const msg = e?.message || "Failed to load products";
+        const msg = (e?.message || "Failed to load products").toString();
         setErr(msg);
 
-        if (msg.toLowerCase().includes("unauthorized")) {
-          localStorage.removeItem("user_jwt");
+        // ✅ Fix: also handle "Invalid token" etc.
+        if (isAuthErrorMessage(msg)) {
+          try {
+            localStorage.removeItem("user_jwt");
+          } catch {}
+
+          // best effort: if wallet injected providers are connected elsewhere,
+          // the header disconnect button is the proper UX. Here we just hard reset.
           window.location.href = "/";
+          return;
         }
       } finally {
         setLoading(false);
@@ -115,12 +133,10 @@ export default function CatalogPage() {
   }, []);
 
   const categories = useMemo(() => {
-    // English comment: Your API does not provide category yet, keep placeholder.
     return ["All"];
   }, []);
 
   const tags = useMemo(() => {
-    // English comment: Your API does not provide tags yet, keep placeholder.
     return ["All"];
   }, []);
 
@@ -140,11 +156,9 @@ export default function CatalogPage() {
 
     if (sort === "az") {
       list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
-    }
-    if (sort === "za") {
+    } else if (sort === "za") {
       list = list.sort((a, b) => getProductName(b).localeCompare(getProductName(a)));
-    }
-    if (sort === "newest") {
+    } else {
       list = list.sort((a, b) => {
         const da = new Date(a.updated_at || a.createdAt || 0).getTime();
         const db = new Date(b.updated_at || b.createdAt || 0).getTime();
@@ -195,7 +209,15 @@ export default function CatalogPage() {
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-          <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
+          <aside
+            className="card"
+            style={{
+              padding: 16,
+              height: "fit-content",
+              position: "sticky",
+              top: 88,
+            }}
+          >
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
             <input
               className="input"
@@ -292,7 +314,13 @@ export default function CatalogPage() {
                 </div>
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                  gap: 14,
+                }}
+              >
                 {filtered.map((p) => {
                   const img = resolveImageSrc(p.image_url || p.imageUrl || "");
                   const link = resolveLink(p.target_url || p.linkUrl || "");
@@ -331,13 +359,28 @@ export default function CatalogPage() {
                         )}
                       </div>
 
-                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                      <div
+                        style={{
+                          padding: 14,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 10,
+                          flex: 1,
+                        }}
+                      >
                         <div>
                           <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>
                             {title}
                           </div>
                           {desc ? (
-                            <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 6, lineHeight: 1.45 }}>
+                            <div
+                              style={{
+                                color: "var(--muted)",
+                                fontSize: 13,
+                                marginTop: 6,
+                                lineHeight: 1.45,
+                              }}
+                            >
                               {desc.length > 140 ? desc.slice(0, 140) + "…" : desc}
                             </div>
                           ) : null}
@@ -357,7 +400,13 @@ export default function CatalogPage() {
                                 }}
                               >
                                 <span style={{ opacity: 0.9 }}>{k}</span>
-                                <span style={{ color: "var(--text)", opacity: 0.9, textAlign: "right" }}>
+                                <span
+                                  style={{
+                                    color: "var(--text)",
+                                    opacity: 0.9,
+                                    textAlign: "right",
+                                  }}
+                                >
                                   {String(v)}
                                 </span>
                               </div>
