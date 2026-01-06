@@ -17,37 +17,25 @@ function requireUser(req: any, res: any, next: any) {
   }
 }
 
-// Returns available filters (categories, tags, field keys)
 productsRouter.get("/filters", requireUser, async (_req, res) => {
   res.json(await getFilters());
 });
 
 productsRouter.get("/", requireUser, async (req, res) => {
-  // support both ?search= and ?q=
-  const search =
-    typeof req.query.search === "string"
-      ? req.query.search
-      : typeof req.query.q === "string"
-      ? req.query.q
-      : undefined;
+  const search = typeof req.query.search === "string" ? req.query.search : undefined;
 
-  // Expect filters as ?filters[key]=value (Next.js style)
+  // erwartet: ?filters[key]=value
   const rawFilters = (req.query.filters ?? {}) as any;
-  const filters: Record<string, string | string[]> = {};
+  const filters: Record<string, string> = {};
 
   if (rawFilters && typeof rawFilters === "object") {
     for (const [k, v] of Object.entries(rawFilters)) {
       if (typeof v === "string") filters[k] = v;
-      if (Array.isArray(v)) filters[k] = v.map(String);
     }
   }
 
-  // paging
   const page = req.query.page ? Number(req.query.page) : 1;
-  const pageSize =
-    req.query.pageSize ? Number(req.query.pageSize) :
-    req.query.limit ? Number(req.query.limit) :
-    50;
+  const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 12;
 
   res.json(await listProducts({ search, filters, page, pageSize }));
 });
