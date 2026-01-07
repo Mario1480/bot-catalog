@@ -179,8 +179,34 @@ export default function CatalogPage() {
     })();
   }, []);
 
-  const categories = useMemo(() => ["All"], []);
-  const tags = useMemo(() => ["All"], []);
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      for (const c of getCategoriesFromProduct(p)) set.add(c);
+    }
+    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [products]);
+
+  const tags = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      for (const t of getTagsFromProduct(p)) set.add(t);
+    }
+    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
+  }, [products]);
+
+  // Keep selected values valid when data changes
+  useEffect(() => {
+    if (selectedCategory !== "All" && !categories.includes(selectedCategory)) {
+      setSelectedCategory("All");
+    }
+  }, [categories, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedTag !== "All" && !tags.includes(selectedTag)) {
+      setSelectedTag("All");
+    }
+  }, [tags, selectedTag]);
 
   const filtered = useMemo(() => {
     const qq = normalizeText(q);
@@ -189,9 +215,14 @@ export default function CatalogPage() {
       const title = normalizeText(getProductName(p));
       const desc = normalizeText(p.description);
 
+      const cats = getCategoriesFromProduct(p).map(normalizeText);
+      const ts = getTagsFromProduct(p).map(normalizeText);
+
       const matchQ = !qq || title.includes(qq) || desc.includes(qq);
-      const matchCategory = selectedCategory === "All";
-      const matchTag = selectedTag === "All";
+      const matchCategory =
+        selectedCategory === "All" || cats.includes(normalizeText(selectedCategory));
+      const matchTag =
+        selectedTag === "All" || ts.includes(normalizeText(selectedTag));
 
       return matchQ && matchCategory && matchTag;
     });
@@ -308,7 +339,17 @@ export default function CatalogPage() {
 
                   return (
                     <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                      <div style={{ height: 160, background: "rgba(255,255,255,.04)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div
+                        style={{
+                          aspectRatio: "1 / 1",
+                          background: "rgba(255,255,255,.04)",
+                          borderBottom: "1px solid var(--border)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          overflow: "hidden",
+                        }}
+                      >
                         {img ? (
                           <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
@@ -327,7 +368,7 @@ export default function CatalogPage() {
 
                           {link ? (
                             <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
-                              Open
+                              Start Bot
                             </a>
                           ) : (
                             <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
@@ -388,7 +429,7 @@ export default function CatalogPage() {
                     alt={title}
                     style={{
                       width: "100%",
-                      maxHeight: 420,
+                      aspectRatio: "1 / 1",
                       objectFit: "cover",
                       borderRadius: 12,
                       border: "1px solid var(--border)",
@@ -404,7 +445,7 @@ export default function CatalogPage() {
               ) : null}
 
               <div style={{ marginTop: 16 }}>
-                <div style={{ fontWeight: 900, marginBottom: 10 }}>Fields</div>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Details</div>
 
                 {extra.length ? (
                   <div className="card" style={{ padding: 12 }}>
@@ -425,7 +466,7 @@ export default function CatalogPage() {
               <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 {link ? (
                   <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
-                    Open link
+                    Start Bot
                   </a>
                 ) : (
                   <button className="btn" disabled style={{ opacity: 0.55 }}>
@@ -443,4 +484,31 @@ export default function CatalogPage() {
       })()}
     </>
   );
+}
+// CATEGORY/TAG helpers for filters
+function getCategoriesFromProduct(p: Product): string[] {
+  // categories are stored as repeated product_fields rows with key "category".
+  // API returns fields as object where duplicates become arrays.
+  const fields: any = p.fields;
+  const v = fields && typeof fields === "object" ? fields["category"] : undefined;
+
+  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
+  if (typeof v === "string") {
+    // allow "A|B" or "A,B" in legacy data
+    const s = v.trim();
+    if (!s) return [];
+    if (s.includes("|") || s.includes(",")) {
+      return s
+        .split(/[|,]/g)
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+    return [s];
+  }
+  return [];
+}
+
+function getTagsFromProduct(p: Product): string[] {
+  const tags = Array.isArray(p.tags) ? p.tags : [];
+  return tags.map((t) => String(t).trim()).filter(Boolean);
 }
