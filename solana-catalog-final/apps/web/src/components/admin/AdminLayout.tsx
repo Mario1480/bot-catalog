@@ -55,7 +55,7 @@ export function AdminLayout({
             <img
               src="/logo.png"
               alt="utrade"
-              style={{ width: 32, height: 32, borderRadius: 10 }}
+              style={{ width: 100, height: 35, borderRadius: 0 }}
             />
             <div style={{ lineHeight: 1.1 }}>
               <div style={{ fontWeight: 900, color: "var(--text)" }}>
