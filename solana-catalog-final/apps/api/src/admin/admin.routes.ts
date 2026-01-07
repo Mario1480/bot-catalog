@@ -5,15 +5,20 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import { getGateConfig } from "../gate/gate.js";
-import { getUsdPriceFromCoinGecko } from "../gate/coingecko.js";
-import { exportProductsCsvSemicolon, importProductsCsvSemicolon } from "./productsCsv.js";
 
 import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
 import { requireAdmin } from "../auth/adminAuth.js";
-import { parseCsv } from "./csv.js";
+
 import { categoriesRouter } from "../categories/categories.routes.js";
+
+import { getGateConfig } from "../gate/gate.js";
+import { getUsdPriceFromCoinGecko } from "../gate/coingecko.js";
+
+import {
+  exportProductsCsvSemicolon,
+  importProductsCsvSemicolon,
+} from "./productsCsv.js";
 
 export const adminRouter = Router();
 
@@ -32,12 +37,6 @@ function ensureUploadsDir(): string {
   const dir = path.join(process.cwd(), "uploads");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
-}
-
-function escapeCsv(v: any) {
-  const s = String(v ?? "");
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
-  return s;
 }
 
 type FieldKV = { key: string; value: string };
@@ -155,20 +154,17 @@ adminRouter.put("/gate-config", requireAdmin, async (req, res) => {
 });
 
 // GET /admin/gate-preview
-// Returns: enabled/mode + current price + required tokens (derived)
 adminRouter.get("/gate-preview", requireAdmin, async (_req, res) => {
   const cfg = await getGateConfig();
   if (!cfg) return res.status(500).json({ error: "gate_config not initialized" });
 
   const enabled = !!cfg.enabled;
-  const mode =
-    cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none";
+  const mode = cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none";
 
   let priceUsd: number | null = null;
   let requiredTokens: number | null = null;
   let requiredUsd: number | null = null;
 
-  // Helper to fetch price if possible (same logic as gating)
   async function fetchPrice(): Promise<number> {
     return await getUsdPriceFromCoinGecko({
       mode: cfg.coingecko_mode,
@@ -179,33 +175,28 @@ adminRouter.get("/gate-preview", requireAdmin, async (_req, res) => {
   }
 
   try {
-    // For USD gating we MUST have a price
     if (mode === "usd") {
       priceUsd = await fetchPrice();
-
       requiredUsd = Number(cfg.min_usd);
       if (Number.isFinite(requiredUsd) && priceUsd > 0) {
         requiredTokens = requiredUsd / priceUsd;
       }
     }
 
-    // For amount gating: price is optional (only for display)
     if (mode === "amount") {
       requiredTokens = Number(cfg.min_amount);
       if (!Number.isFinite(requiredTokens)) requiredTokens = null;
 
-      // Try to fetch price to show ~$ value, but don't fail endpoint if it errors
       try {
         priceUsd = await fetchPrice();
         if (priceUsd > 0 && requiredTokens !== null) {
           requiredUsd = requiredTokens * priceUsd;
         }
       } catch {
-        // ignore price errors in amount-mode
+        // ignore
       }
     }
   } catch (e: any) {
-    // In USD mode, price is essential -> return error clearly
     if (mode === "usd") {
       return res.status(500).json({ error: e?.message || "Failed to fetch price" });
     }
@@ -229,7 +220,11 @@ adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), asy
   if (!req.file) return res.status(400).json({ error: "Missing file" });
 
   const ext =
-    req.file.mimetype === "image/png" ? ".png" : req.file.mimetype === "image/webp" ? ".webp" : ".jpg";
+    req.file.mimetype === "image/png"
+      ? ".png"
+      : req.file.mimetype === "image/webp"
+        ? ".webp"
+        : ".jpg";
 
   const name = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
   const dir = ensureUploadsDir();
@@ -238,7 +233,7 @@ adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), asy
   res.json({ publicUrl: `/uploads/${name}` });
 });
 
-/* ------------------ CATEGORIES (Admin) ------------------ */
+/* ------------------ CATEGORIES ------------------ */
 adminRouter.use("/categories", requireAdmin, categoriesRouter);
 
 /* ------------------ PRODUCTS CRUD ------------------ */
@@ -313,7 +308,10 @@ adminRouter.post("/products", requireAdmin, async (req, res) => {
   const id = rows[0].id;
 
   for (const f of fieldsList) {
-    await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`, [id, f.key, f.value]);
+    await query(
+      `INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`,
+      [id, f.key, f.value]
+    );
   }
   for (const t of tagList) {
     await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1,$2)`, [id, t]);
@@ -327,7 +325,7 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-  const fieldsList = cleanFields(fields); // keep duplicates for multi-category
+  const fieldsList = cleanFields(fields);
   const tagList = cleanTags(tags);
   const searchExtra = buildSearchExtra(fieldsList, tagList);
 
@@ -352,7 +350,10 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
   await query(`DELETE FROM product_tags WHERE product_id = $1`, [id]);
 
   for (const f of fieldsList) {
-    await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`, [id, f.key, f.value]);
+    await query(
+      `INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`,
+      [id, f.key, f.value]
+    );
   }
   for (const t of tagList) {
     await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1,$2)`, [id, t]);
@@ -369,14 +370,13 @@ adminRouter.delete("/products/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-// CSV import (new semicolon format)
+/* ------------------ CSV IMPORT/EXPORT (semicolon format) ------------------ */
 adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), async (req, res) => {
   if (!req.file?.buffer) return res.status(400).json({ error: "Missing file" });
   const out = await importProductsCsvSemicolon(req.file.buffer);
   res.json(out);
 });
 
-// CSV export (new semicolon format)
 adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
   const csv = await exportProductsCsvSemicolon();
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -385,53 +385,43 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
 });
 
 /* ------------------ ADMINS CRUD ------------------ */
+
 // GET /admin/admins
-adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
-  const products = await query<any>(`SELECT * FROM products ORDER BY updated_at DESC`);
+adminRouter.get("/admins", requireAdmin, async (_req, res) => {
+  const rows = await query<any>(
+    `SELECT id, email, created_at, updated_at
+     FROM admins
+     ORDER BY created_at DESC`
+  );
+  res.json(rows);
+});
 
-  // NEW HEADER
-  let csv = "title,description,image_url,target_url,status,categories,tags,fields\n";
+// POST /admin/admins
+adminRouter.post("/admins", requireAdmin, async (req, res) => {
+  const emailRaw = String(req.body?.email ?? "");
+  const passRaw = String(req.body?.password ?? "");
 
-  for (const p of products) {
-    const fields = await query<any>(
-      `SELECT key, value FROM product_fields WHERE product_id = $1 ORDER BY key, value`,
-      [p.id]
-    );
-    const tags = await query<any>(
-      `SELECT tag FROM product_tags WHERE product_id = $1 ORDER BY tag`,
-      [p.id]
-    );
+  const email = emailRaw.trim().toLowerCase();
+  const password = passRaw;
 
-    const categories = fields
-      .filter((f: any) => f.key === "category")
-      .map((f: any) => String(f.value))
-      .filter(Boolean)
-      .join("|");
+  if (!email || !password) return res.status(400).json({ error: "email and password are required" });
+  if (password.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
 
-    const normalFields = fields
-      .filter((f: any) => f.key !== "category")
-      .map((f: any) => `${String(f.key)}=${String(f.value)}`)
-      .join("|");
+  const existing = await query<any>(`SELECT id FROM admins WHERE email = $1`, [email]);
+  if (existing[0]) return res.status(409).json({ error: "Admin already exists" });
 
-    const tagsStr = tags.map((t: any) => String(t.tag)).filter(Boolean).join("|");
+  const password_hash = await bcrypt.hash(password, 10);
 
-    const line = [
-      escapeCsv(p.title),
-      escapeCsv(p.description),
-      escapeCsv(p.image_url),
-      escapeCsv(p.target_url),
-      escapeCsv(p.status),
-      escapeCsv(categories),
-      escapeCsv(tagsStr),
-      escapeCsv(normalFields),
-    ].join(",");
+  const rows = await query<any>(
+    `
+    INSERT INTO admins (email, password_hash)
+    VALUES ($1, $2)
+    RETURNING id, email, created_at, updated_at
+    `,
+    [email, password_hash]
+  );
 
-    csv += line + "\n";
-  }
-
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", "attachment; filename=products.csv");
-  res.send(csv);
+  res.json(rows[0]);
 });
 
 // PUT /admin/admins/:id  (Reset password)
@@ -448,7 +438,7 @@ adminRouter.put("/admins/:id", requireAdmin, async (req: any, res) => {
   const rows = await query<any>(
     `
     UPDATE admins
-    SET password_hash = $2
+    SET password_hash = $2, updated_at = now()
     WHERE id = $1
     RETURNING id, email, created_at, updated_at
     `,
