@@ -220,7 +220,7 @@ export default function ProductEditor() {
   }, [categories, categoryOptions]);
 
   return (
-    <AdminLayout title={id ? "Edit Product" : "Create Product"} right={<></>}>
+    <AdminLayout title={id ? "Edit Product" : "Create Product"}>
       <div className="card" style={{ padding: 16 }}>
         <div
           style={{
