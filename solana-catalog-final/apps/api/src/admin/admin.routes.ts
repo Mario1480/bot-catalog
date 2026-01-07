@@ -375,31 +375,90 @@ adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), as
   const rows = await parseCsv(req.file.buffer);
   const report: any[] = [];
 
+  function parsePipeList(v: any): string[] {
+    return String(v ?? "")
+      .split("|")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  function parseFieldsKV(v: any): FieldKV[] {
+    const raw = String(v ?? "").trim();
+    if (!raw) return [];
+    return raw
+      .split("|")
+      .map((pair) => {
+        const idx = pair.indexOf("=");
+        if (idx === -1) return null;
+        const key = pair.slice(0, idx).trim();
+        const value = pair.slice(idx + 1).trim();
+        if (!key || !value) return null;
+        return { key, value };
+      })
+      .filter(Boolean) as FieldKV[];
+  }
+
+  function parseFieldsJson(v: any): FieldKV[] {
+    const s = String(v ?? "").trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      const out: FieldKV[] = [];
+
+      if (parsed && typeof parsed === "object") {
+        for (const [k, val] of Object.entries(parsed)) {
+          const key = String(k).trim();
+          if (!key) continue;
+
+          // Allow arrays in JSON (e.g. category: ["Bots","Tools"])
+          if (Array.isArray(val)) {
+            for (const vv of val) {
+              const value = String(vv ?? "").trim();
+              if (value) out.push({ key, value });
+            }
+          } else {
+            const value = String(val ?? "").trim();
+            if (value) out.push({ key, value });
+          }
+        }
+      }
+
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     try {
+      // New format
       const title = String(r.title ?? "").trim();
       const description = String(r.description ?? "");
       const image_url = String(r.image_url ?? "");
       const target_url = String(r.target_url ?? "").trim();
-      const status = String(r.status ?? "published");
-      const tags = String(r.tags ?? "");
-      const fieldsJson = String(r.fields_json ?? "{}");
+      const status = String(r.status ?? "published").trim() || "published";
 
       if (!title || !target_url) throw new Error("title and target_url are required");
 
-      const parsed = JSON.parse(fieldsJson);
-      const fieldsList: FieldKV[] = [];
-      if (parsed && typeof parsed === "object") {
-        for (const [k, v] of Object.entries(parsed)) {
-          const kk = String(k).trim();
-          const vv = String(v).trim();
-          if (kk && vv) fieldsList.push({ key: kk, value: vv });
-        }
+      const categories = parsePipeList(r.categories);
+      const tags = parsePipeList(r.tags);
+
+      // fields: "k=v|k2=v2"
+      let fieldsList = parseFieldsKV(r.fields);
+
+      // Backward compatible fallback: old export used fields_json
+      if (!fieldsList.length && r.fields_json) {
+        fieldsList = parseFieldsJson(r.fields_json);
       }
 
-      const tagList = tags ? tags.split("|").map((x: string) => x.trim()).filter(Boolean) : [];
-      const searchExtra = buildSearchExtra(fieldsList, tagList);
+      // Append categories as repeated product_fields rows
+      for (const c of categories) {
+        fieldsList.push({ key: "category", value: c });
+      }
+
+      // IMPORTANT: keep duplicates (e.g. multiple category rows)
+      const searchExtra = buildSearchExtra(fieldsList, tags);
 
       const up = await query<{ id: string }>(
         `
@@ -429,7 +488,7 @@ adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), as
           f.value,
         ]);
       }
-      for (const t of tagList) {
+      for (const t of tags) {
         await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1, $2)`, [productId, t]);
       }
 
@@ -476,36 +535,52 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
 
 /* ------------------ ADMINS CRUD ------------------ */
 // GET /admin/admins
-adminRouter.get("/admins", requireAdmin, async (_req, res) => {
-  const rows = await query<any>(
-    `SELECT id, email, created_at, updated_at FROM admins ORDER BY created_at DESC`
-  );
-  res.json(rows);
-});
+adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
+  const products = await query<any>(`SELECT * FROM products ORDER BY updated_at DESC`);
 
-// POST /admin/admins
-adminRouter.post("/admins", requireAdmin, async (req, res) => {
-  const email = String(req.body?.email ?? "").trim().toLowerCase();
-  const password = String(req.body?.password ?? "");
+  // NEW HEADER
+  let csv = "title,description,image_url,target_url,status,categories,tags,fields\n";
 
-  if (!email || !password) return res.status(400).json({ error: "email and password are required" });
-  if (password.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
+  for (const p of products) {
+    const fields = await query<any>(
+      `SELECT key, value FROM product_fields WHERE product_id = $1 ORDER BY key, value`,
+      [p.id]
+    );
+    const tags = await query<any>(
+      `SELECT tag FROM product_tags WHERE product_id = $1 ORDER BY tag`,
+      [p.id]
+    );
 
-  const existing = await query<any>(`SELECT id FROM admins WHERE email = $1`, [email]);
-  if (existing[0]) return res.status(409).json({ error: "Admin already exists" });
+    const categories = fields
+      .filter((f: any) => f.key === "category")
+      .map((f: any) => String(f.value))
+      .filter(Boolean)
+      .join("|");
 
-  const password_hash = await bcrypt.hash(password, 10);
+    const normalFields = fields
+      .filter((f: any) => f.key !== "category")
+      .map((f: any) => `${String(f.key)}=${String(f.value)}`)
+      .join("|");
 
-  const rows = await query<any>(
-    `
-    INSERT INTO admins (email, password_hash)
-    VALUES ($1, $2)
-    RETURNING id, email, created_at, updated_at
-    `,
-    [email, password_hash]
-  );
+    const tagsStr = tags.map((t: any) => String(t.tag)).filter(Boolean).join("|");
 
-  res.json(rows[0]);
+    const line = [
+      escapeCsv(p.title),
+      escapeCsv(p.description),
+      escapeCsv(p.image_url),
+      escapeCsv(p.target_url),
+      escapeCsv(p.status),
+      escapeCsv(categories),
+      escapeCsv(tagsStr),
+      escapeCsv(normalFields),
+    ].join(",");
+
+    csv += line + "\n";
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=products.csv");
+  res.send(csv);
 });
 
 // PUT /admin/admins/:id  (Reset password)
