@@ -9,8 +9,8 @@ type Category = {
   name: string;
   sort_order: number;
   active: boolean;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 function qp(name: string): string {
@@ -19,10 +19,13 @@ function qp(name: string): string {
   return u.searchParams.get(name) || "";
 }
 
+function uniqStrings(arr: string[]) {
+  return Array.from(new Set(arr.map((x) => (x || "").trim()).filter(Boolean)));
+}
+
 export default function ProductEditor() {
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
@@ -35,9 +38,8 @@ export default function ProductEditor() {
   const [fields, setFields] = useState<KV[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
-  // ✅ categories from backend
-  const [categoryOptions, setCategoryOptions] = useState<Category[]>([]);
-  const [categoriesLoading, setCategoriesLoading] = useState(true);
+  const [catOptions, setCatOptions] = useState<Category[]>([]);
+  const [catLoading, setCatLoading] = useState(true);
 
   const token =
     typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
@@ -51,49 +53,41 @@ export default function ProductEditor() {
   }, []);
 
   /* ------------------ LOAD CATEGORIES ------------------ */
-  async function loadCategories() {
-    setCategoriesLoading(true);
-    setErr("");
-    try {
-      // includeInactive damit du im Admin auch inaktive siehst (aber wir können sie disabled rendern)
-      const out = await apiFetch(
-        "/admin/categories?includeInactive=1",
-        { method: "GET" },
-        token
-      );
-
-      const rows: Category[] = Array.isArray(out) ? out : [];
-      rows.sort((a, b) => {
-        const so = (a.sort_order ?? 0) - (b.sort_order ?? 0);
-        if (so !== 0) return so;
-        return String(a.name || "").localeCompare(String(b.name || ""));
-      });
-
-      setCategoryOptions(rows);
-    } catch (e: any) {
-      // categories sind nice-to-have -> UI soll trotzdem benutzbar bleiben
-      setErr(e?.message || "Failed to load categories");
-      setCategoryOptions([]);
-    } finally {
-      setCategoriesLoading(false);
-    }
-  }
-
   useEffect(() => {
-    if (!token) return;
-    loadCategories();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    (async () => {
+      setCatLoading(true);
+      try {
+        const out = await apiFetch(
+          `/admin/categories?includeInactive=1`,
+          { method: "GET" },
+          token
+        );
+
+        const list: Category[] = Array.isArray(out) ? out : [];
+        list.sort((a, b) => {
+          const so = (a.sort_order ?? 0) - (b.sort_order ?? 0);
+          if (so !== 0) return so;
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        });
+
+        setCatOptions(list);
+      } catch (e: any) {
+        // kein harter Fehler – UI soll trotzdem nutzbar bleiben
+        console.warn("Failed to load categories", e?.message || e);
+        setCatOptions([]);
+      } finally {
+        setCatLoading(false);
+      }
+    })();
   }, [token]);
 
   /* ------------------ LOAD PRODUCT ------------------ */
   useEffect(() => {
+    if (!id) return;
+
     (async () => {
-      setLoading(true);
       setErr("");
-
       try {
-        if (!id) return;
-
         const out = await apiFetch(`/admin/products/${id}`, { method: "GET" }, token);
 
         setTitle(out.title || "");
@@ -109,20 +103,14 @@ export default function ProductEditor() {
           value: String(f.value || ""),
         }));
 
-        // ✅ Categories aus fields ziehen (mehrere Zeilen)
-        const cats = all
-          .filter((f) => f.key === "category")
-          .map((f) => String(f.value || "").trim())
-          .filter(Boolean);
+        // Categories aus fields ziehen (key === "category")
+        const cats = all.filter((f) => f.key === "category").map((f) => f.value);
+        setCategories(uniqStrings(cats));
 
-        setCategories(Array.from(new Set(cats)));
-
-        // ✅ category NICHT doppelt in freien fields
+        // category NICHT doppelt in freien fields
         setFields(all.filter((f) => f.key !== "category"));
       } catch (e: any) {
         setErr(e?.message || "Load failed");
-      } finally {
-        setLoading(false);
       }
     })();
   }, [id, token]);
@@ -162,9 +150,7 @@ export default function ProductEditor() {
         .map((f) => ({ key: (f.key || "").trim(), value: (f.value || "").trim() }))
         .filter((f) => f.key && f.value && f.key !== "category"); // prevent category duplication
 
-      const cleanedCategories = Array.from(
-        new Set(categories.map((c) => (c || "").trim()).filter(Boolean))
-      );
+      const cleanedCategories = uniqStrings(categories);
 
       const payload = {
         title,
@@ -209,15 +195,20 @@ export default function ProductEditor() {
     });
   }
 
-  const availableActiveNames = useMemo(() => {
-    return new Set(categoryOptions.filter((c) => c.active).map((c) => c.name));
-  }, [categoryOptions]);
+  function toggleCategory(name: string, checked: boolean) {
+    setCategories((prev) => {
+      const set = new Set(prev);
+      if (checked) set.add(name);
+      else set.delete(name);
+      return Array.from(set);
+    });
+  }
 
-  const selectedButMissing = useMemo(() => {
-    // Falls Kategorien gelöscht/umbenannt wurden: trotzdem anzeigen, damit nichts verloren geht
-    const known = new Set(categoryOptions.map((c) => c.name));
+  // Kategorien die am Produkt hängen, aber evtl. nicht mehr in der DB existieren
+  const unknownSelectedCats = useMemo(() => {
+    const known = new Set(catOptions.map((c) => c.name));
     return categories.filter((c) => !known.has(c));
-  }, [categories, categoryOptions]);
+  }, [categories, catOptions]);
 
   return (
     <AdminLayout title={id ? "Edit Product" : "Create Product"}>
@@ -232,11 +223,11 @@ export default function ProductEditor() {
           }}
         >
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>
               {id ? "Edit Product" : "Create Product"}
             </div>
-            <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>
-              {loading ? "Loading…" : " "}
+            <div style={{ opacity: 0.7, marginTop: 4, fontSize: 13 }}>
+              {id ? `ID: ${id}` : "New product"}
             </div>
           </div>
 
@@ -253,29 +244,28 @@ export default function ProductEditor() {
           </div>
         </div>
 
-        {err ? (
+        {err && (
           <div
             className="card"
             style={{
-              marginTop: 12,
+              marginTop: 14,
               padding: 12,
               borderColor: "rgba(255,80,80,.35)",
               background: "rgba(255,80,80,.08)",
             }}
           >
             <div style={{ fontWeight: 900 }}>Error</div>
-            <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+            <div style={{ opacity: 0.85, marginTop: 6 }}>{err}</div>
           </div>
-        ) : null}
+        )}
 
-        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+        <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
           <label style={{ display: "grid", gap: 6 }}>
             <div style={{ fontWeight: 800 }}>Title</div>
             <input
               className="input"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              style={{ padding: 10 }}
             />
           </label>
 
@@ -285,7 +275,7 @@ export default function ProductEditor() {
               className="input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              style={{ padding: 10, minHeight: 120 }}
+              style={{ minHeight: 120 }}
             />
           </label>
 
@@ -295,7 +285,7 @@ export default function ProductEditor() {
               className="input"
               value={targetUrl}
               onChange={(e) => setTargetUrl(e.target.value)}
-              style={{ padding: 10 }}
+              placeholder="https://..."
             />
           </label>
 
@@ -305,33 +295,22 @@ export default function ProductEditor() {
               className="input"
               value={status}
               onChange={(e) => setStatus(e.target.value)}
-              style={{ padding: 10 }}
             >
               <option value="published">published</option>
               <option value="draft">draft</option>
             </select>
           </label>
 
-          {/* IMAGE */}
           <div className="card" style={{ padding: 12 }}>
-            <div style={{ fontWeight: 900 }}>Image</div>
-
+            <div style={{ fontWeight: 800 }}>Image</div>
             {imgPreview ? (
               <img
                 src={imgPreview}
                 alt="preview"
-                style={{
-                  width: "100%",
-                  maxWidth: 420,
-                  marginTop: 10,
-                  borderRadius: 12,
-                  border: "1px solid var(--border)",
-                }}
+                style={{ maxWidth: 420, width: "100%", marginTop: 10, borderRadius: 10 }}
               />
             ) : (
-              <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 8 }}>
-                No image
-              </div>
+              <div style={{ opacity: 0.7, marginTop: 8 }}>No image yet.</div>
             )}
 
             <div style={{ marginTop: 10 }}>
@@ -350,9 +329,8 @@ export default function ProductEditor() {
             </div>
           </div>
 
-          {/* TAGS */}
           <div className="card" style={{ padding: 12 }}>
-            <div style={{ fontWeight: 900 }}>Tags</div>
+            <div style={{ fontWeight: 800 }}>Tags</div>
             <input
               className="input"
               value={tags.join("|")}
@@ -365,52 +343,45 @@ export default function ProductEditor() {
                 )
               }
               placeholder="tag1|tag2|tag3"
-              style={{ width: "100%", padding: 10, marginTop: 8 }}
+              style={{ marginTop: 8 }}
             />
           </div>
 
-          {/* CATEGORIES (backend-driven) */}
           <div className="card" style={{ padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-              <div style={{ fontWeight: 900 }}>Categories (multiple)</div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button className="btn" onClick={() => (window.location.href = "/admin/categories")}>
-                  Manage categories
-                </button>
-                <button className="btn" onClick={loadCategories} disabled={categoriesLoading}>
-                  {categoriesLoading ? "Refreshing…" : "Refresh"}
-                </button>
-              </div>
-            </div>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Categories (multiple)</div>
 
-            {categoriesLoading ? (
-              <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>Loading categories…</div>
-            ) : categoryOptions.length === 0 ? (
-              <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+            {catLoading ? (
+              <div style={{ opacity: 0.75 }}>Loading categories…</div>
+            ) : catOptions.length === 0 ? (
+              <div style={{ opacity: 0.75 }}>
                 No categories found. Create some in <b>Admin → Categories</b>.
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                {categoryOptions.map((c) => {
+              <div style={{ display: "grid", gap: 8 }}>
+                {catOptions.map((c) => {
                   const checked = categories.includes(c.name);
-                  const disabled = !c.active;
+
+                  // Inactive: allow uncheck if already selected, but prevent selecting new
+                  const disabled = !c.active && !checked;
 
                   return (
-                    <label key={c.id} style={{ display: "flex", gap: 10, alignItems: "center", opacity: disabled ? 0.6 : 1 }}>
+                    <label
+                      key={c.id}
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        alignItems: "center",
+                        opacity: disabled ? 0.5 : 1,
+                      }}
+                    >
                       <input
                         type="checkbox"
                         checked={checked}
                         disabled={disabled}
-                        onChange={(e) => {
-                          setCategories((prev) => {
-                            if (e.target.checked) return Array.from(new Set([...prev, c.name]));
-                            return prev.filter((x) => x !== c.name);
-                          });
-                        }}
+                        onChange={(e) => toggleCategory(c.name, e.target.checked)}
                       />
                       <span>
-                        {c.name}{" "}
-                        {!c.active ? <span style={{ color: "var(--muted)", fontSize: 12 }}>(inactive)</span> : null}
+                        {c.name} {!c.active ? <span style={{ opacity: 0.7 }}>(inactive)</span> : null}
                       </span>
                     </label>
                   );
@@ -418,31 +389,33 @@ export default function ProductEditor() {
               </div>
             )}
 
-            {/* if selected categories no longer exist */}
-            {selectedButMissing.length ? (
-              <div className="card" style={{ marginTop: 12, padding: 10, borderColor: "rgba(255,200,80,.35)", background: "rgba(255,200,80,.08)" }}>
-                <div style={{ fontWeight: 900 }}>Note</div>
-                <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 13 }}>
-                  These selected categories do not exist in the categories table anymore:
-                  <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {selectedButMissing.map((x) => (
-                      <span key={x} className="badge" style={{ padding: "6px 10px" }}>
-                        {x}
-                      </span>
-                    ))}
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    They will still be saved unless you unselect them (to avoid accidental data loss).
-                  </div>
+            {unknownSelectedCats.length ? (
+              <div style={{ marginTop: 12, opacity: 0.8, fontSize: 13 }}>
+                <div style={{ fontWeight: 800, marginBottom: 6 }}>
+                  Selected categories not in DB:
                 </div>
+                {unknownSelectedCats.map((c) => (
+                  <div key={c} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <code>{c}</code>
+                    <button className="btn" onClick={() => toggleCategory(c, false)}>
+                      remove
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : null}
           </div>
 
-          {/* FIELDS */}
           <div className="card" style={{ padding: 12 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-              <div style={{ fontWeight: 900 }}>Fields (key/value)</div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <div style={{ fontWeight: 800 }}>Fields (key/value)</div>
               <button
                 className="btn"
                 onClick={() => setFields((p) => [...p, { key: "", value: "" }])}
@@ -452,9 +425,7 @@ export default function ProductEditor() {
             </div>
 
             {fields.length === 0 ? (
-              <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
-                No fields yet.
-              </div>
+              <div style={{ marginTop: 10, opacity: 0.7 }}>No fields yet.</div>
             ) : null}
 
             {fields.map((f, i) => (
@@ -472,14 +443,12 @@ export default function ProductEditor() {
                   value={f.key}
                   placeholder="key"
                   onChange={(e) => setField(i, e.target.value, f.value)}
-                  style={{ padding: 10 }}
                 />
                 <input
                   className="input"
                   value={f.value}
                   placeholder="value"
                   onChange={(e) => setField(i, f.key, e.target.value)}
-                  style={{ padding: 10 }}
                 />
                 <button
                   className="btn"
