@@ -1,14 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { apiFetch, apiBase } from "../../lib/api";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
-const CATEGORY_OPTIONS = [
-  "Bots",
-  "Signals",
-  "Indicators",
-  "Education",
-  "Tools",
-  "Other",
-];
+const CATEGORY_OPTIONS = ["Bots", "Signals", "Indicators", "Education", "Tools", "Other"];
 
 type KV = { key: string; value: string };
 
@@ -18,83 +13,83 @@ function qp(name: string): string {
   return u.searchParams.get(name) || "";
 }
 
+function uniq(arr: string[]) {
+  return Array.from(new Set(arr.map((x) => x.trim()).filter(Boolean)));
+}
+
 export default function ProductEditor() {
   const [err, setErr] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [targetUrl, setTargetUrl] = useState("");
-  const [status, setStatus] = useState("published");
+  const [status, setStatus] = useState<"published" | "draft">("published");
 
   const [tags, setTags] = useState<string[]>([]);
   const [fields, setFields] = useState<KV[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
-  const token =
-    typeof window !== "undefined"
-      ? localStorage.getItem("admin_jwt") || ""
-      : "";
-
+  const token = typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
   const API = apiBase();
 
-  /* ------------------ LOAD ID ------------------ */
+  /* ------------------ Load ID ------------------ */
   useEffect(() => {
     const existingId = qp("id");
     if (existingId) setId(existingId);
   }, []);
 
-  /* ------------------ LOAD PRODUCT ------------------ */
+  /* ------------------ Load Product ------------------ */
   useEffect(() => {
     if (!id) return;
 
     (async () => {
+      setErr("");
+      setLoading(true);
       try {
-        const out = await apiFetch(
-          `/admin/products/${id}`,
-          { method: "GET" },
-          token
-        );
+        const out = await apiFetch(`/admin/products/${id}`, { method: "GET" }, token);
 
         setTitle(out.title || "");
         setDescription(out.description || "");
         setImageUrl(out.image_url || "");
         setTargetUrl(out.target_url || "");
-        setStatus(out.status || "published");
-        setTags(out.tags || []);
+        setStatus((out.status || "published") === "draft" ? "draft" : "published");
+        setTags(Array.isArray(out.tags) ? out.tags : []);
 
         const rawFields = Array.isArray(out.fields) ? out.fields : [];
         const all: KV[] = rawFields.map((f: any) => ({
-          key: String(f.key || ""),
-          value: String(f.value || ""),
+          key: String(f.key || "").trim(),
+          value: String(f.value || "").trim(),
         }));
 
-        // Categories aus fields ziehen
-        const cats = all
-          .filter((f) => f.key === "category")
-          .map((f) => f.value);
-
-        setCategories(Array.from(new Set(cats)));
+        // categories aus fields ziehen (mehrfach erlaubt)
+        const cats = all.filter((f) => f.key === "category").map((f) => f.value);
+        setCategories(uniq(cats));
 
         // category NICHT doppelt in freien fields
         setFields(all.filter((f) => f.key !== "category"));
       } catch (e: any) {
-        setErr(e.message || "Load failed");
+        setErr(e?.message || "Load failed");
+      } finally {
+        setLoading(false);
       }
     })();
   }, [id, token]);
 
-  /* ------------------ IMAGE PREVIEW ------------------ */
+  /* ------------------ Image Preview ------------------ */
   const imgPreview = useMemo(() => {
     if (!imageUrl) return "";
-    if (imageUrl.startsWith("http")) return imageUrl;
+    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) return imageUrl;
     if (imageUrl.startsWith("/uploads/")) return `${API}${imageUrl}`;
+    if (imageUrl.startsWith("/")) return `${API}${imageUrl}`;
     return `${API}/uploads/${imageUrl}`;
   }, [imageUrl, API]);
 
   async function uploadImage(file: File) {
+    setErr("");
     const form = new FormData();
     form.append("file", file);
 
@@ -110,164 +105,277 @@ export default function ProductEditor() {
     setImageUrl(data.publicUrl);
   }
 
-  /* ------------------ SAVE ------------------ */
+  /* ------------------ Save ------------------ */
   async function save() {
     setSaving(true);
     setErr("");
 
     try {
-      const payload = {
-        title,
-        description,
-        image_url: imageUrl,
-        target_url: targetUrl,
-        status,
-        tags,
-        fields: [
-          ...fields
-            .map((f) => ({
-              key: f.key.trim(),
-              value: f.value.trim(),
-            }))
-            .filter((f) => f.key && f.value),
+      const cleanFields = fields
+        .map((f) => ({ key: (f.key || "").trim(), value: (f.value || "").trim() }))
+        .filter((f) => f.key && f.value);
 
-          ...categories.map((c) => ({
-            key: "category",
-            value: c,
-          })),
+      const cleanCats = uniq(categories);
+
+      const payload = {
+        title: title.trim(),
+        description: description || "",
+        image_url: imageUrl || "",
+        target_url: targetUrl.trim(),
+        status,
+        tags: uniq(tags),
+        fields: [
+          ...cleanFields,
+          ...cleanCats.map((c) => ({ key: "category", value: c })),
         ],
       };
 
       if (!id) {
-        const out = await apiFetch(
-          "/admin/products",
-          { method: "POST", body: JSON.stringify(payload) },
-          token
-        );
+        const out = await apiFetch("/admin/products", { method: "POST", body: JSON.stringify(payload) }, token);
         window.location.href = `/admin/products-edit?id=${out.id}`;
       } else {
-        await apiFetch(
-          `/admin/products/${id}`,
-          { method: "PUT", body: JSON.stringify(payload) },
-          token
-        );
+        await apiFetch(`/admin/products/${id}`, { method: "PUT", body: JSON.stringify(payload) }, token);
         alert("Saved");
       }
     } catch (e: any) {
-      setErr(e.message || "Save failed");
+      setErr(e?.message || "Save failed");
     } finally {
       setSaving(false);
     }
   }
 
-  /* ------------------ UI ------------------ */
+  async function del() {
+    if (!id) return;
+    if (!confirm("Delete this product?")) return;
+
+    setErr("");
+    setSaving(true);
+    try {
+      await apiFetch(`/admin/products/${id}`, { method: "DELETE" }, token);
+      window.location.href = "/admin/products";
+    } catch (e: any) {
+      setErr(e?.message || "Delete failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function setField(i: number, next: KV) {
+    setFields((prev) => {
+      const copy = [...prev];
+      copy[i] = next;
+      return copy;
+    });
+  }
+
   return (
-    <div style={{ maxWidth: 900, margin: "40px auto", padding: 16 }}>
-      <h1>{id ? "Edit Product" : "Create Product"}</h1>
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
+    <AdminLayout title={id ? "Edit Product" : "Create Product"}>
+      {/* Top actions */}
+      <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <Link className="btn" href="/admin/products">
+            ← Back
+          </Link>
+          <div style={{ fontWeight: 900, fontSize: 18 }}>
+            {id ? "Edit Product" : "Create Product"}
+          </div>
+          {loading ? <span style={{ color: "var(--muted)" }}>Loading…</span> : null}
+        </div>
 
-      <div style={{ display: "grid", gap: 12 }}>
-        <input
-          placeholder="Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {id ? (
+            <button className="btn" onClick={del} disabled={saving} style={{ borderColor: "rgba(255,80,80,.35)" }}>
+              Delete
+            </button>
+          ) : null}
 
-        <textarea
-          placeholder="Description (Details page)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+          <button className="btn btnPrimary" onClick={save} disabled={saving || loading}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
-        <input
-          placeholder="Target URL"
-          value={targetUrl}
-          onChange={(e) => setTargetUrl(e.target.value)}
-        />
+      {/* Error */}
+      {err && (
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            marginBottom: 14,
+            borderColor: "rgba(255,80,80,.35)",
+            background: "rgba(255,80,80,.08)",
+          }}
+        >
+          <div style={{ fontWeight: 900 }}>Error</div>
+          <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+        </div>
+      )}
 
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="published">published</option>
-          <option value="draft">draft</option>
-        </select>
+      {/* Form */}
+      <div style={{ display: "grid", gap: 14 }}>
+        {/* Basics */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Basics</div>
 
-        {/* IMAGE */}
-        <div>
-          {imgPreview && (
-            <img
-              src={imgPreview}
-              style={{ maxWidth: 300, borderRadius: 8 }}
-            />
-          )}
-          <input
-            type="file"
-            onChange={(e) =>
-              e.target.files && uploadImage(e.target.files[0])
-            }
+          <div style={{ display: "grid", gap: 10 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>Title</span>
+              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>Target URL</span>
+              <input className="input" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} />
+            </label>
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ color: "var(--muted)", fontSize: 12 }}>Status</span>
+              <select className="input" value={status} onChange={(e) => setStatus(e.target.value as any)}>
+                <option value="published">published</option>
+                <option value="draft">draft</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {/* Description */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Description (Details page)</div>
+          <textarea
+            className="input"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ minHeight: 120, resize: "vertical" }}
+            placeholder="Shown in the Details modal/page"
           />
         </div>
 
-        {/* CATEGORIES */}
-        <div style={{ border: "1px solid #ddd", padding: 12 }}>
-          <strong>Categories</strong>
-          {CATEGORY_OPTIONS.map((c) => (
-            <label key={c} style={{ display: "block" }}>
-              <input
-                type="checkbox"
-                checked={categories.includes(c)}
-                onChange={(e) =>
-                  setCategories((prev) =>
-                    e.target.checked
-                      ? [...prev, c]
-                      : prev.filter((x) => x !== c)
-                  )
-                }
-              />{" "}
-              {c}
-            </label>
-          ))}
+        {/* Image */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Image</div>
+
+          {imgPreview ? (
+            <img
+              src={imgPreview}
+              alt="preview"
+              style={{
+                width: "100%",
+                maxWidth: 520,
+                borderRadius: 12,
+                border: "1px solid var(--border)",
+                marginBottom: 10,
+              }}
+            />
+          ) : (
+            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>No image yet</div>
+          )}
+
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              uploadImage(f).catch((x) => setErr(String(x?.message || x)));
+            }}
+          />
+
+          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+            Stored as: <code>{imageUrl || "(none)"}</code>
+          </div>
         </div>
 
-        {/* FIELDS */}
-        <div>
-          <strong>Fields</strong>
-          {fields.map((f, i) => (
-            <div key={i} style={{ display: "flex", gap: 6 }}>
-              <input
-                value={f.key}
-                placeholder="key"
-                onChange={(e) =>
-                  setFields((p) => {
-                    const n = [...p];
-                    n[i].key = e.target.value;
-                    return n;
-                  })
-                }
-              />
-              <input
-                value={f.value}
-                placeholder="value"
-                onChange={(e) =>
-                  setFields((p) => {
-                    const n = [...p];
-                    n[i].value = e.target.value;
-                    return n;
-                  })
-                }
-              />
-              <button onClick={() => setFields(fields.filter((_, x) => x !== i))}>
-                ✕
-              </button>
+        {/* Tags */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Tags</div>
+          <input
+            className="input"
+            value={tags.join("|")}
+            onChange={(e) => setTags(e.target.value.split("|").map((x) => x.trim()).filter(Boolean))}
+            placeholder="tag1|tag2|tag3"
+          />
+          <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 12 }}>
+            Use <code>|</code> to separate tags.
+          </div>
+        </div>
+
+        {/* Categories */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Categories</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            {CATEGORY_OPTIONS.map((c) => {
+              const checked = categories.includes(c);
+              return (
+                <label key={c} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      setCategories((prev) => {
+                        if (e.target.checked) return uniq([...prev, c]);
+                        return prev.filter((x) => x !== c);
+                      });
+                    }}
+                  />
+                  <span>{c}</span>
+                </label>
+              );
+            })}
+          </div>
+
+          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+            Saved as multiple <code>fields</code> rows: <code>key=category</code>.
+          </div>
+        </div>
+
+        {/* Fields */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <div style={{ fontWeight: 900 }}>Fields (key/value)</div>
+            <button className="btn" onClick={() => setFields((p) => [...p, { key: "", value: "" }])}>
+              + Add field
+            </button>
+          </div>
+
+          {fields.length === 0 ? (
+            <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>No custom fields yet.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
+              {fields.map((f, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr auto",
+                    gap: 10,
+                    alignItems: "center",
+                  }}
+                >
+                  <input
+                    className="input"
+                    value={f.key}
+                    placeholder="Key"
+                    onChange={(e) => setField(i, { key: e.target.value, value: f.value })}
+                  />
+                  <input
+                    className="input"
+                    value={f.value}
+                    placeholder="Value"
+                    onChange={(e) => setField(i, { key: f.key, value: e.target.value })}
+                  />
+                  <button className="btn" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))}>
+                    ✕
+                  </button>
+                </div>
+              ))}
             </div>
-          ))}
-          <button onClick={() => setFields([...fields, { key: "", value: "" }])}>
-            + Add field
-          </button>
-        </div>
+          )}
 
-        <button disabled={saving} onClick={save}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+            Note: Do not use <code>category</code> here — categories are managed above.
+          </div>
+        </div>
       </div>
-    </div>
+    </AdminLayout>
   );
 }

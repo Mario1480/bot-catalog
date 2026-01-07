@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiFetch } from "../../lib/api";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
 export default function GateConfigPage() {
   const [cfg, setCfg] = useState<any>(null);
   const [err, setErr] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
 
   async function load() {
     setErr("");
@@ -13,165 +17,269 @@ export default function GateConfigPage() {
       const out = await apiFetch("/admin/gate-config", { method: "GET" }, token);
       setCfg(out);
     } catch (e: any) {
-      setErr(e.message || "Failed");
+      setErr(e?.message || "Failed to load gate config");
     }
   }
 
   async function save() {
+    if (!cfg) return;
     setErr("");
+    setSaving(true);
     try {
-      // English comment: Auto-fill token address for onchain mode if missing.
+      // Auto-fill token address for onchain mode if missing.
       const next = { ...cfg };
       if (next.coingecko_mode === "onchain") {
         next.coingecko_platform = next.coingecko_platform || "solana";
-        next.coingecko_token_address = next.coingecko_token_address || next.mint_address;
+        next.coingecko_token_address =
+          next.coingecko_token_address || next.mint_address;
       }
+
       const out = await apiFetch(
         "/admin/gate-config",
         { method: "PUT", body: JSON.stringify(next) },
         token
       );
+
       setCfg(out);
       alert("Saved");
     } catch (e: any) {
-      setErr(e.message || "Save failed");
+      setErr(e?.message || "Save failed");
+    } finally {
+      setSaving(false);
     }
   }
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  if (!cfg) return <div style={{ maxWidth: 720, margin: "40px auto" }}>Loading...</div>;
-
   return (
-    <div style={{ maxWidth: 720, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Gate Configuration</h1>
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
-
-      <label style={{ display: "block", marginTop: 12 }}>
-        <input
-          type="checkbox"
-          checked={!!cfg.enabled}
-          onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })}
-        />{" "}
-        Enabled
-      </label>
-
-      <div style={{ marginTop: 12 }}>
-        <div>Mint Address (SPL)</div>
-        <input
-          value={cfg.mint_address || ""}
-          onChange={(e) => setCfg({ ...cfg, mint_address: e.target.value })}
-          style={{ width: "100%", padding: 10 }}
-        />
-      </div>
-
-      <div style={{ marginTop: 12 }}>
-        <div>Mode</div>
-        <select
-          value={cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none"}
-          onChange={(e) => {
-            const mode = e.target.value;
-            if (mode === "amount") setCfg({ ...cfg, min_amount: 1, min_usd: null });
-            if (mode === "usd") setCfg({ ...cfg, min_amount: null, min_usd: 50 });
-            if (mode === "none") setCfg({ ...cfg, min_amount: null, min_usd: null });
+    <AdminLayout title="Token gating">
+      {err && (
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            marginBottom: 14,
+            borderColor: "rgba(255,80,80,.35)",
+            background: "rgba(255,80,80,.08)",
           }}
-          style={{ padding: 10, width: "100%" }}
         >
-          <option value="none">Not set yet</option>
-          <option value="amount">Min token amount</option>
-          <option value="usd">Min USD value</option>
-        </select>
-      </div>
-
-      {cfg.min_amount !== null && (
-        <div style={{ marginTop: 12 }}>
-          <div>Min Amount</div>
-          <input
-            value={cfg.min_amount}
-            onChange={(e) => setCfg({ ...cfg, min_amount: e.target.value })}
-            style={{ width: "100%", padding: 10 }}
-          />
+          <div style={{ fontWeight: 900 }}>Error</div>
+          <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
         </div>
       )}
 
-      {cfg.min_usd !== null && (
-        <>
-          <div style={{ marginTop: 12 }}>
-            <div>Min USD</div>
-            <input
-              value={cfg.min_usd}
-              onChange={(e) => setCfg({ ...cfg, min_usd: e.target.value })}
-              style={{ width: "100%", padding: 10 }}
-            />
-          </div>
+      {!cfg ? (
+        <div className="card" style={{ padding: 16 }}>
+          Loading…
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 14 }}>
+          <div
+            className="card"
+            style={{ padding: 16, display: "grid", gap: 12 }}
+          >
+            <div style={{ fontWeight: 900 }}>Gate configuration</div>
 
-          <div style={{ marginTop: 12 }}>
-            <div>CoinGecko price source</div>
-            <select
-              value={cfg.coingecko_mode || "coin_id"}
-              onChange={(e) => setCfg({ ...cfg, coingecko_mode: e.target.value })}
-              style={{ padding: 10, width: "100%" }}
-            >
-              <option value="coin_id">Coin ID (simple/price)</option>
-              <option value="onchain">Onchain token price (platform + token address)</option>
-            </select>
-          </div>
-
-          {cfg.coingecko_mode === "coin_id" && (
-            <div style={{ marginTop: 12 }}>
-              <div>CoinGecko Coin ID</div>
+            <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
               <input
-                value={cfg.coingecko_coin_id || ""}
-                onChange={(e) => setCfg({ ...cfg, coingecko_coin_id: e.target.value })}
-                style={{ width: "100%", padding: 10 }}
-                placeholder='e.g. "solana"'
+                type="checkbox"
+                checked={!!cfg.enabled}
+                onChange={(e) => setCfg({ ...cfg, enabled: e.target.checked })}
+              />
+              <span>Enabled</span>
+            </label>
+
+            <div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                Mint Address (SPL)
+              </div>
+              <input
+                className="input"
+                value={cfg.mint_address || ""}
+                onChange={(e) =>
+                  setCfg({ ...cfg, mint_address: e.target.value })
+                }
               />
             </div>
-          )}
 
-          {cfg.coingecko_mode === "onchain" && (
-            <>
-              <div style={{ marginTop: 12 }}>
-                <div>Platform</div>
+            <div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                Mode
+              </div>
+              <select
+                className="input"
+                value={
+                  cfg.min_amount !== null
+                    ? "amount"
+                    : cfg.min_usd !== null
+                    ? "usd"
+                    : "none"
+                }
+                onChange={(e) => {
+                  const mode = e.target.value;
+                  if (mode === "amount")
+                    setCfg({ ...cfg, min_amount: 1, min_usd: null });
+                  if (mode === "usd")
+                    setCfg({ ...cfg, min_amount: null, min_usd: 50 });
+                  if (mode === "none")
+                    setCfg({ ...cfg, min_amount: null, min_usd: null });
+                }}
+              >
+                <option value="none">Not set yet</option>
+                <option value="amount">Min token amount</option>
+                <option value="usd">Min USD value</option>
+              </select>
+            </div>
+
+            {cfg.min_amount !== null && (
+              <div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                  Min Amount
+                </div>
                 <input
-                  value={cfg.coingecko_platform || "solana"}
-                  onChange={(e) => setCfg({ ...cfg, coingecko_platform: e.target.value })}
-                  style={{ width: "100%", padding: 10 }}
+                  className="input"
+                  value={cfg.min_amount ?? ""}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, min_amount: e.target.value })
+                  }
                 />
               </div>
-              <div style={{ marginTop: 12 }}>
-                <div>Token Address</div>
-                <input
-                  value={cfg.coingecko_token_address || cfg.mint_address || ""}
-                  onChange={(e) => setCfg({ ...cfg, coingecko_token_address: e.target.value })}
-                  style={{ width: "100%", padding: 10 }}
-                />
+            )}
+
+            {cfg.min_usd !== null && (
+              <div style={{ display: "grid", gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                    Min USD
+                  </div>
+                  <input
+                    className="input"
+                    value={cfg.min_usd ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, min_usd: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                    CoinGecko price source
+                  </div>
+                  <select
+                    className="input"
+                    value={cfg.coingecko_mode || "coin_id"}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, coingecko_mode: e.target.value })
+                    }
+                  >
+                    <option value="coin_id">Coin ID (simple/price)</option>
+                    <option value="onchain">
+                      Onchain token price (platform + token address)
+                    </option>
+                  </select>
+                </div>
+
+                {cfg.coingecko_mode === "coin_id" && (
+                  <div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                      CoinGecko Coin ID
+                    </div>
+                    <input
+                      className="input"
+                      value={cfg.coingecko_coin_id || ""}
+                      onChange={(e) =>
+                        setCfg({ ...cfg, coingecko_coin_id: e.target.value })
+                      }
+                      placeholder='e.g. "solana"'
+                    />
+                  </div>
+                )}
+
+                {cfg.coingecko_mode === "onchain" && (
+                  <>
+                    <div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                        Platform
+                      </div>
+                      <input
+                        className="input"
+                        value={cfg.coingecko_platform || "solana"}
+                        onChange={(e) =>
+                          setCfg({
+                            ...cfg,
+                            coingecko_platform: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                        Token Address
+                      </div>
+                      <input
+                        className="input"
+                        value={
+                          cfg.coingecko_token_address ||
+                          cfg.mint_address ||
+                          ""
+                        }
+                        onChange={(e) =>
+                          setCfg({
+                            ...cfg,
+                            coingecko_token_address: e.target.value,
+                          })
+                        }
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-            </>
-          )}
-        </>
+            )}
+
+            <div>
+              <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>
+                Tolerance Percent (default 2)
+              </div>
+              <input
+                className="input"
+                value={cfg.tolerance_percent ?? 2}
+                onChange={(e) =>
+                  setCfg({ ...cfg, tolerance_percent: e.target.value })
+                }
+              />
+            </div>
+
+            <button
+              className="btn btnPrimary"
+              onClick={save}
+              disabled={saving}
+              style={{ width: "100%" }}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+
+          <div
+            className="card"
+            style={{
+              padding: 14,
+              display: "flex",
+              gap: 10,
+              flexWrap: "wrap",
+              alignItems: "center",
+            }}
+          >
+            <Link className="btn" href="/admin/products">
+              Products
+            </Link>
+            <Link className="btn" href="/admin/csv">
+              CSV Import/Export
+            </Link>
+          </div>
+        </div>
       )}
-
-      <div style={{ marginTop: 12 }}>
-        <div>Tolerance Percent (default 2)</div>
-        <input
-          value={cfg.tolerance_percent ?? 2}
-          onChange={(e) => setCfg({ ...cfg, tolerance_percent: e.target.value })}
-          style={{ width: "100%", padding: 10 }}
-        />
-      </div>
-
-      <button onClick={save} style={{ padding: "10px 14px", marginTop: 16, width: "100%" }}>
-        Save
-      </button>
-
-      <hr style={{ margin: "24px 0" }} />
-      <div style={{ display: "flex", gap: 12 }}>
-        <a href="/admin/products">Products CRUD</a>
-        <a href="/admin/csv">CSV Import/Export</a>
-      </div>
-    </div>
+    </AdminLayout>
   );
 }
