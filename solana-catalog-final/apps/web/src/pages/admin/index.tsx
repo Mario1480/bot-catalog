@@ -50,6 +50,22 @@ export default function AdminDashboardPage() {
   const [gate, setGate] = useState<GateConfig | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
+  const [gatePreview, setGatePreview] = useState<any>(null);
+  const [gateErr, setGateErr] = useState("");
+
+  async function loadGatePreview() {
+    setGateErr("");
+    try {
+      const out = await apiFetch("/admin/gate-preview", { method: "GET" }, token);
+      setGatePreview(out);
+    } catch (e: any) {
+      setGateErr(e?.message || "Failed to load gate preview");
+    }
+  }
+
+  useEffect(() => {
+    loadGatePreview();
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -179,6 +195,40 @@ export default function AdminDashboardPage() {
                     Open Token Gating
                   </Link>
                 </div>
+                {gateErr ? (
+                  <div style={{ marginTop: 10, opacity: 0.85 }}>
+                    <span style={{ color: "#ff6b6b" }}>{gateErr}</span>
+                  </div>
+                ) : gatePreview ? (
+                  <div style={{ marginTop: 10, opacity: 0.85, fontSize: 13, lineHeight: 1.4 }}>
+                    {gatePreview.priceUsd ? (
+                      <div>Price: ${Number(gatePreview.priceUsd).toFixed(6)}</div>
+                    ) : (
+                      <div>Price: (not available)</div>
+                    )}
+
+                    {gatePreview.mode === "usd" && gatePreview.requiredTokens ? (
+                      <div>
+                        Required: {Number(gatePreview.requiredTokens).toFixed(4)} tokens{" "}
+                        (≈ ${Number(gatePreview.requiredUsd || gatePreview.min_usd || 0).toFixed(2)})
+                      </div>
+                    ) : null}
+
+                    {gatePreview.mode === "amount" && gatePreview.requiredTokens ? (
+                      <div>
+                        Required: {Number(gatePreview.requiredTokens).toFixed(4)} tokens
+                        {gatePreview.requiredUsd ? (
+                          <> (≈ ${Number(gatePreview.requiredUsd).toFixed(2)})</>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>Loading price…</div>
+                )}
+
+                // optional: Refresh button irgendwo im Card-Header
+                // <button onClick={loadGatePreview}>Refresh</button>
               </div>
 
               {/* Categories */}
