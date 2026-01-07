@@ -1,11 +1,6 @@
 import { Router } from "express";
 import { verifyAdminJwt } from "../auth/jwt.js";
-import {
-  listCategories,
-  createCategory,
-  updateCategory,
-  deleteCategory,
-} from "./categories.service.js";
+import { createCategory, deleteCategory, listCategories } from "./categories.service.js";
 
 export const categoriesRouter = Router();
 
@@ -22,21 +17,22 @@ function requireAdmin(req: any, res: any, next: any) {
   }
 }
 
-/**
- * Admin list (includes inactive)
- */
 categoriesRouter.get("/", requireAdmin, async (_req, res) => {
-  res.json(await listCategories({ includeInactive: true }));
+  res.json(await listCategories());
 });
 
 categoriesRouter.post("/", requireAdmin, async (req, res) => {
-  res.json(await createCategory(req.body || {}));
-});
+  const name = String(req.body?.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Missing name" });
 
-categoriesRouter.put("/:id", requireAdmin, async (req, res) => {
-  res.json(await updateCategory(req.params.id, req.body || {}));
+  const out = await createCategory(name);
+  res.json(out);
 });
 
 categoriesRouter.delete("/:id", requireAdmin, async (req, res) => {
-  res.json(await deleteCategory(req.params.id));
+  const id = String(req.params.id || "");
+  if (!id) return res.status(400).json({ error: "Missing id" });
+
+  await deleteCategory(id);
+  res.json({ ok: true });
 });

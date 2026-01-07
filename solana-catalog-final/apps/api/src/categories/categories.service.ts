@@ -18,17 +18,25 @@ export async function listCategories(opts?: { includeInactive?: boolean }) {
     FROM categories
     ${includeInactive ? "" : "WHERE active = TRUE"}
     ORDER BY sort_order ASC, name ASC
-    `
+    `,
+    []
   );
 
-  return rows;
+  return rows as Category[];
 }
 
-export async function createCategory(input: { name: string; sort_order?: number; active?: boolean }) {
-  const name = (input.name || "").trim();
+export async function createCategory(input: {
+  name: string;
+  sort_order?: number;
+  active?: boolean;
+}) {
+  const name = String(input.name || "").trim();
   if (!name) throw new Error("Name is required");
 
-  const sort_order = Number.isFinite(Number(input.sort_order)) ? Number(input.sort_order) : 0;
+  const sort_order = Number.isFinite(Number(input.sort_order))
+    ? Number(input.sort_order)
+    : 0;
+
   const active = input.active === undefined ? true : !!input.active;
 
   const rows = await query(
@@ -40,14 +48,29 @@ export async function createCategory(input: { name: string; sort_order?: number;
     [name, sort_order, active]
   );
 
-  return rows[0];
+  return rows[0] as Category;
 }
 
-export async function updateCategory(id: string, input: { name?: string; sort_order?: number; active?: boolean }) {
-  const patch: any = {};
-  if (input.name !== undefined) patch.name = String(input.name).trim();
-  if (input.sort_order !== undefined) patch.sort_order = Number(input.sort_order);
-  if (input.active !== undefined) patch.active = !!input.active;
+export async function updateCategory(
+  id: string,
+  input: { name?: string; sort_order?: number; active?: boolean }
+) {
+  const patch: Record<string, any> = {};
+
+  if (input.name !== undefined) {
+    const n = String(input.name).trim();
+    if (!n) throw new Error("Name cannot be empty");
+    patch.name = n;
+  }
+
+  if (input.sort_order !== undefined) {
+    const so = Number(input.sort_order);
+    patch.sort_order = Number.isFinite(so) ? so : 0;
+  }
+
+  if (input.active !== undefined) {
+    patch.active = !!input.active;
+  }
 
   const keys = Object.keys(patch);
   if (!keys.length) throw new Error("Nothing to update");
@@ -55,10 +78,14 @@ export async function updateCategory(id: string, input: { name?: string; sort_or
   // build dynamic update
   const sets: string[] = [];
   const params: any[] = [id];
+
   for (const k of keys) {
     params.push(patch[k]);
     sets.push(`${k} = $${params.length}`);
   }
+
+  // always bump updated_at
+  sets.push(`updated_at = now()`);
 
   const rows = await query(
     `
@@ -71,11 +98,15 @@ export async function updateCategory(id: string, input: { name?: string; sort_or
   );
 
   if (!rows[0]) throw new Error("Category not found");
-  return rows[0];
+  return rows[0] as Category;
 }
 
 export async function deleteCategory(id: string) {
-  const rows = await query(`DELETE FROM categories WHERE id = $1 RETURNING id`, [id]);
+  const rows = await query(
+    `DELETE FROM categories WHERE id = $1 RETURNING id`,
+    [id]
+  );
+
   if (!rows[0]) throw new Error("Category not found");
   return { ok: true };
 }

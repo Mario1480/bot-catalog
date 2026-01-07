@@ -32,37 +32,29 @@ const allowedOrigins =
 app.use(
   cors({
     origin: (origin, cb) => {
-      // allow server-to-server (curl) and same-origin
       if (!origin) return cb(null, true);
-
-      // allow all
       if (allowedOrigins.includes("*")) return cb(null, true);
 
       const o = origin.replace(/\/$/, "");
       const ok = allowedOrigins.some((x) => x.replace(/\/$/, "") === o);
-
       if (ok) return cb(null, true);
 
-      // block otherwise
       return cb(null, false);
     },
     credentials: true,
   })
 );
 
-// helpful for preflight
 app.options("*", cors());
-
 app.use(express.json({ limit: "5mb" }));
 
-// Ensure uploads directory exists and is served publicly.
+// uploads
 const uploadsDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 app.use("/uploads", express.static(uploadsDir, { maxAge: "7d" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
-// Wallet auth: nonce
 app.get("/auth/nonce", async (req, res) => {
   const pubkey = String(req.query.pubkey ?? "");
   if (!pubkey) return res.status(400).json({ error: "Missing pubkey" });
@@ -74,7 +66,6 @@ app.get("/auth/nonce", async (req, res) => {
   res.json({ nonce, message });
 });
 
-// Wallet auth: verify + gating
 app.post("/auth/verify", async (req, res) => {
   const { pubkey, signature, message } = req.body ?? {};
   if (!pubkey || !signature || !message) {
@@ -98,13 +89,13 @@ app.post("/auth/verify", async (req, res) => {
   res.json({ token: jwt, details: decision });
 });
 
-// Gated catalog endpoints
+// public gated
 app.use("/products", productsRouter);
 
-// ✅ Admin: Categories endpoints (MUST be before /admin router)
+// ✅ Admin categories (muss vor /admin sein)
 app.use("/admin/categories", categoriesRouter);
 
-// Admin endpoints
+// admin
 app.use("/admin", adminRouter);
 
 (async () => {
