@@ -9,23 +9,17 @@ import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
 import { requireAdmin } from "../auth/adminAuth.js";
 import { parseCsv } from "./csv.js";
-
-// ✅ Categories
 import { categoriesRouter } from "../categories/categories.routes.js";
 
 export const adminRouter = Router();
 
-/* --------------------------------------------------
-   Upload config
--------------------------------------------------- */
-
 const upload = multer();
 
 const uploadImage = multer({
-  limits: { fileSize: 2 * 1024 * 1024 },
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
-    const done = cb as unknown as (err: Error | null, accept: boolean) => void;
+    const done = cb as unknown as (error: Error | null, acceptFile: boolean) => void;
     done(ok ? null : new Error("Invalid image type"), ok);
   },
 });
@@ -36,34 +30,41 @@ function ensureUploadsDir(): string {
   return dir;
 }
 
-/* --------------------------------------------------
-   Helpers
--------------------------------------------------- */
-
 function escapeCsv(v: any) {
   const s = String(v ?? "");
-  if (s.includes('"') || s.includes(",") || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
+  if (s.includes('"') || s.includes(",") || s.includes("\n")) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
-function buildSearchExtra(fields: Record<string, string>, tags: string[]): string {
+function buildSearchExtra(fields: Array<{ key: string; value: string }>, tags: string[]): string {
   const parts: string[] = [];
-  for (const [k, v] of Object.entries(fields)) parts.push(k, v);
+  for (const f of fields) {
+    if (!f?.key || !f?.value) continue;
+    parts.push(String(f.key), String(f.value));
+  }
   for (const t of tags) parts.push(t);
   return parts.join(" ").slice(0, 5000);
 }
 
-/* --------------------------------------------------
-   Auth
--------------------------------------------------- */
+function cleanFields(input: any): Array<{ key: string; value: string }> {
+  const arr = Array.isArray(input) ? input : [];
+  return arr
+    .map((f: any) => ({
+      key: String(f?.key ?? "").trim(),
+      value: String(f?.value ?? "").trim(),
+    }))
+    .filter((f) => f.key && f.value);
+}
 
+function cleanTags(input: any): string[] {
+  const arr = Array.isArray(input) ? input : [];
+  return arr.map((t: any) => String(t).trim()).filter(Boolean);
+}
+
+/* ------------------ AUTH ------------------ */
 adminRouter.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
-  if (!email || !password) {
-    return res.status(400).json({ error: "Missing credentials" });
-  }
+  if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
 
   const rows = await query<{ id: string; email: string; password_hash: string }>(
     `SELECT id, email, password_hash FROM admins WHERE email = $1`,
@@ -79,16 +80,7 @@ adminRouter.post("/login", async (req, res) => {
   res.json({ token: signAdminJwt(admin.id, admin.email) });
 });
 
-/* --------------------------------------------------
-   Categories CRUD
--------------------------------------------------- */
-
-adminRouter.use("/categories", requireAdmin, categoriesRouter);
-
-/* --------------------------------------------------
-   Gate config
--------------------------------------------------- */
-
+/* ------------------ GATE CONFIG ------------------ */
 adminRouter.get("/gate-config", requireAdmin, async (_req, res) => {
   const rows = await query<any>(`SELECT * FROM gate_config LIMIT 1`);
   res.json(rows[0]);
@@ -108,17 +100,12 @@ adminRouter.put("/gate-config", requireAdmin, async (req, res) => {
   } = req.body ?? {};
 
   const minAmountVal =
-    min_amount === "" || min_amount === null || min_amount === undefined
-      ? null
-      : Number(min_amount);
-
+    min_amount === "" || min_amount === null || min_amount === undefined ? null : Number(min_amount);
   const minUsdVal =
-    min_usd === "" || min_usd === null || min_usd === undefined
-      ? null
-      : Number(min_usd);
+    min_usd === "" || min_usd === null || min_usd === undefined ? null : Number(min_usd);
 
   if (minAmountVal !== null && minUsdVal !== null) {
-    return res.status(400).json({ error: "Set either min_amount or min_usd" });
+    return res.status(400).json({ error: "Set either min_amount or min_usd, not both" });
   }
 
   await query(
@@ -152,37 +139,24 @@ adminRouter.put("/gate-config", requireAdmin, async (req, res) => {
   res.json(rows[0]);
 });
 
-/* --------------------------------------------------
-   Image upload
--------------------------------------------------- */
+/* ------------------ UPLOADS ------------------ */
+adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: "Missing file" });
 
-adminRouter.post(
-  "/uploads/image",
-  requireAdmin,
-  uploadImage.single("file"),
-  async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Missing file" });
+  const ext =
+    req.file.mimetype === "image/png" ? ".png" : req.file.mimetype === "image/webp" ? ".webp" : ".jpg";
 
-    const ext =
-      req.file.mimetype === "image/png"
-        ? ".png"
-        : req.file.mimetype === "image/webp"
-        ? ".webp"
-        : ".jpg";
+  const name = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
+  const dir = ensureUploadsDir();
+  fs.writeFileSync(path.join(dir, name), req.file.buffer);
 
-    const name = `${Date.now()}-${crypto.randomBytes(8).toString("hex")}${ext}`;
-    const dir = ensureUploadsDir();
+  res.json({ publicUrl: `/uploads/${name}` });
+});
 
-    fs.writeFileSync(path.join(dir, name), req.file.buffer);
+/* ------------------ CATEGORIES (Admin) ------------------ */
+adminRouter.use("/categories", requireAdmin, categoriesRouter);
 
-    res.json({ publicUrl: `/uploads/${name}` });
-  }
-);
-
-/* --------------------------------------------------
-   Products CRUD
--------------------------------------------------- */
-
+/* ------------------ PRODUCTS CRUD ------------------ */
 adminRouter.get("/products", requireAdmin, async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : "";
   const page = req.query.page ? Number(req.query.page) : 1;
@@ -194,6 +168,7 @@ adminRouter.get("/products", requireAdmin, async (req, res) => {
 
   if (search) {
     values.push(search);
+    // wenn du search_vector nicht hast: ersetze diese Zeile durch ILIKE auf title/search_extra
     where += ` AND p.search_vector @@ plainto_tsquery('simple', $${values.length})`;
   }
 
@@ -214,7 +189,7 @@ adminRouter.get("/products", requireAdmin, async (req, res) => {
 });
 
 adminRouter.get("/products/:id", requireAdmin, async (req, res) => {
-  const id = req.params.id;
+  const id = String(req.params.id || "");
   const p = (await query<any>(`SELECT * FROM products WHERE id = $1`, [id]))[0];
   if (!p) return res.status(404).json({ error: "Not found" });
 
@@ -222,19 +197,202 @@ adminRouter.get("/products/:id", requireAdmin, async (req, res) => {
     `SELECT key, value FROM product_fields WHERE product_id = $1 ORDER BY key`,
     [id]
   );
-  const tags = await query<any>(
-    `SELECT tag FROM product_tags WHERE product_id = $1 ORDER BY tag`,
-    [id]
-  );
+  const tags = await query<any>(`SELECT tag FROM product_tags WHERE product_id = $1 ORDER BY tag`, [id]);
 
   res.json({ ...p, fields, tags: tags.map((t) => t.tag) });
 });
 
-/* --------------------------------------------------
-   CSV import / export (unchanged, safe)
--------------------------------------------------- */
+adminRouter.post("/products", requireAdmin, async (req, res) => {
+  const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
+  if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-// ⬅️ dein bestehender CSV-Code bleibt exakt gleich
-// (hier nichts mehr ändern)
+  const fieldsList = cleanFields(fields);          // ✅ multi category bleibt erhalten
+  const tagList = cleanTags(tags);
+  const searchExtra = buildSearchExtra(fieldsList, tagList);
 
-export default adminRouter;
+  const rows = await query<{ id: string }>(
+    `
+    INSERT INTO products (title, description, image_url, target_url, status, search_extra)
+    VALUES ($1,$2,$3,$4,$5,$6)
+    RETURNING id
+    `,
+    [
+      String(title),
+      String(description ?? ""),
+      String(image_url ?? ""),
+      String(target_url),
+      String(status ?? "published"),
+      searchExtra,
+    ]
+  );
+
+  const id = rows[0].id;
+
+  for (const f of fieldsList) {
+    await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`, [id, f.key, f.value]);
+  }
+  for (const t of tagList) {
+    await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1,$2)`, [id, t]);
+  }
+
+  res.json({ id });
+});
+
+adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
+  const id = String(req.params.id || "");
+  const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
+  if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
+
+  const fieldsList = cleanFields(fields);          // ✅ multi category bleibt erhalten
+  const tagList = cleanTags(tags);
+  const searchExtra = buildSearchExtra(fieldsList, tagList);
+
+  await query(
+    `
+    UPDATE products
+    SET title=$1, description=$2, image_url=$3, target_url=$4, status=$5, search_extra=$6, updated_at=now()
+    WHERE id=$7
+    `,
+    [
+      String(title),
+      String(description ?? ""),
+      String(image_url ?? ""),
+      String(target_url),
+      String(status ?? "published"),
+      searchExtra,
+      id,
+    ]
+  );
+
+  await query(`DELETE FROM product_fields WHERE product_id = $1`, [id]);
+  await query(`DELETE FROM product_tags WHERE product_id = $1`, [id]);
+
+  for (const f of fieldsList) {
+    await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1,$2,$3)`, [id, f.key, f.value]);
+  }
+  for (const t of tagList) {
+    await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1,$2)`, [id, t]);
+  }
+
+  res.json({ ok: true });
+});
+
+adminRouter.delete("/products/:id", requireAdmin, async (req, res) => {
+  remind: {
+    // (optional) cascades wären schöner, aber wir löschen sauber per queries
+  }
+  const id = String(req.params.id || "");
+  await query(`DELETE FROM product_fields WHERE product_id = $1`, [id]);
+  await query(`DELETE FROM product_tags WHERE product_id = $1`, [id]);
+  await query(`DELETE FROM products WHERE id = $1`, [id]);
+  res.json({ ok: true });
+});
+
+/* ------------------ CSV IMPORT/EXPORT ------------------ */
+adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), async (req, res) => {
+  if (!req.file?.buffer) return res.status(400).json({ error: "Missing file" });
+
+  const rows = await parseCsv(req.file.buffer);
+  const report: any[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    try {
+      const title = String(r.title ?? "").trim();
+      const description = String(r.description ?? "");
+      const image_url = String(r.image_url ?? "");
+      const target_url = String(r.target_url ?? "").trim();
+      const status = String(r.status ?? "published");
+      const tags = String(r.tags ?? "");
+      const fieldsJson = String(r.fields_json ?? "{}");
+
+      if (!title || !target_url) throw new Error("title and target_url are required");
+
+      const parsed = JSON.parse(fieldsJson);
+      const fieldsList: Array<{ key: string; value: string }> = [];
+      if (parsed && typeof parsed === "object") {
+        for (const [k, v] of Object.entries(parsed)) {
+          const kk = String(k).trim();
+          const vv = String(v).trim();
+          if (kk && vv) fieldsList.push({ key: kk, value: vv });
+        }
+      }
+
+      const tagList = tags ? tags.split("|").map((x: string) => x.trim()).filter(Boolean) : [];
+      const searchExtra = buildSearchExtra(fieldsList, tagList);
+
+      const up = await query<{ id: string }>(
+        `
+        INSERT INTO products (title, description, image_url, target_url, status, search_extra)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (target_url) DO UPDATE
+          SET title = EXCLUDED.title,
+              description = EXCLUDED.description,
+              image_url = EXCLUDED.image_url,
+              status = EXCLUDED.status,
+              search_extra = EXCLUDED.search_extra,
+              updated_at = now()
+        RETURNING id
+        `,
+        [title, description, image_url, target_url, status, searchExtra]
+      );
+
+      const productId = up[0].id;
+
+      await query(`DELETE FROM product_fields WHERE product_id = $1`, [productId]);
+      await query(`DELETE FROM product_tags WHERE product_id = $1`, [productId]);
+
+      for (const f of fieldsList) {
+        await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1, $2, $3)`, [
+          productId,
+          f.key,
+          f.value,
+        ]);
+      }
+      for (const t of tagList) {
+        await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1, $2)`, [productId, t]);
+      }
+
+      report.push({ row: i + 2, ok: true });
+    } catch (e: any) {
+      report.push({ row: i + 2, ok: false, error: e.message ?? String(e) });
+    }
+  }
+
+  res.json({ imported: report.filter((r) => r.ok).length, report });
+});
+
+adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
+  const products = await query<any>(`SELECT * FROM products ORDER BY updated_at DESC`);
+
+  let csv = "title,description,image_url,target_url,status,fields_json,tags\n";
+
+  for (const p of products) {
+    const fields = await query<any>(`SELECT key, value FROM product_fields WHERE product_id = $1`, [p.id]);
+    const tags = await query<any>(`SELECT tag FROM product_tags WHERE product_id = $1`, [p.id]);
+
+    const fieldsObj: Record<string, any> = {};
+    for (const f of fields) {
+      // Export als Object (CSV), bei duplicate keys wird überschrieben – ist ok fürs Export-Format.
+      fieldsObj[f.key] = f.value;
+    }
+
+    const tagsStr = tags.map((t: any) => t.tag).join("|");
+
+    const line = [
+      escapeCsv(p.title),
+      escapeCsv(p.description),
+      escapeCsv(p.image_url),
+      escapeCsv(p.target_url),
+      escapeCsv(p.status),
+      escapeCsv(JSON.stringify(fieldsObj)),
+      escapeCsv(tagsStr),
+    ].join(",");
+
+    csv += line + "\n";
+  }
+
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", "attachment; filename=products.csv");
+  res.send(csv);
+});
