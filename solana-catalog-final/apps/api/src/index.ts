@@ -29,24 +29,35 @@ const allowedOrigins =
         .map((s) => s.trim())
         .filter(Boolean);
 
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (allowedOrigins.includes("*")) return cb(null, true);
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, cb) => {
+    // allow server-to-server (curl) and same-origin
+    if (!origin) return cb(null, true);
 
-      const o = origin.replace(/\/$/, "");
-      const ok = allowedOrigins.some((x) => x.replace(/\/$/, "") === o);
-      if (ok) return cb(null, true);
+    // allow all
+    if (allowedOrigins.includes("*")) return cb(null, true);
 
-      return cb(null, false);
-    },
-    credentials: true,
-  })
-);
+    const o = origin.replace(/\/$/, "");
+    const ok = allowedOrigins.some((x) => x.replace(/\/$/, "") === o);
 
-app.options("*", cors());
-app.use(express.json({ limit: "5mb" }));
+    // Wichtig: bei "false" fehlen die Header -> Browser meldet "Missing Allow Origin"
+    // Daher bei nicht erlaubten Origins sauber rejecten:
+    if (!ok) return cb(new Error("Not allowed by CORS"));
+
+    return cb(null, true);
+  },
+
+  credentials: true,
+
+  // Preflight muss diese Header erlauben (Authorization ist wichtig!)
+  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+};
+
+app.use(cors(corsOptions));
+
+// Preflight unbedingt mit IDENTISCHEN Optionen beantworten
+app.options("*", cors(corsOptions));
 
 // uploads
 const uploadsDir = path.join(process.cwd(), "uploads");
