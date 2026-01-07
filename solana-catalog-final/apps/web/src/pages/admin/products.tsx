@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { AdminLayout } from "../../components/AdminLayout";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
 export default function AdminProductsList() {
   const [items, setItems] = useState<any[]>([]);

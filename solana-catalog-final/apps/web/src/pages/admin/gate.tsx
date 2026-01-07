@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { AdminLayout } from "../../components/AdminLayout";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
 export default function GateConfigPage() {
   const [cfg, setCfg] = useState<any>(null);
