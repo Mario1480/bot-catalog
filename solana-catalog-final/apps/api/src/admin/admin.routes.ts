@@ -408,3 +408,61 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
   res.setHeader("Content-Disposition", "attachment; filename=products.csv");
   res.send(csv);
 });
+
+// ------------------ ADMINS CRUD ------------------
+
+// GET /admin/admins
+adminRouter.get("/admins", requireAdmin, async (_req, res) => {
+  const rows = await query<any>(
+    `SELECT id, email, created_at, updated_at
+     FROM admins
+     ORDER BY created_at DESC`
+  );
+  res.json(rows);
+});
+
+// POST /admin/admins
+adminRouter.post("/admins", requireAdmin, async (req, res) => {
+  const { email, password } = req.body ?? {};
+  const e = String(email ?? "").trim().toLowerCase();
+  const p = String(password ?? "");
+
+  if (!e || !p) return res.status(400).json({ error: "email and password are required" });
+  if (p.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
+
+  const existing = await query<any>(`SELECT id FROM admins WHERE email = $1`, [e]);
+  if (existing[0]) return res.status(409).json({ error: "Admin already exists" });
+
+  const password_hash = await bcrypt.hash(p, 10);
+
+  const rows = await query<any>(
+    `
+    INSERT INTO admins (email, password_hash)
+    VALUES ($1, $2)
+    RETURNING id, email, created_at, updated_at
+    `,
+    [e, password_hash]
+  );
+
+  res.json(rows[0]);
+});
+
+// DELETE /admin/admins/:id
+adminRouter.delete("/admins/:id", requireAdmin, async (req: any, res) => {
+  const id = String(req.params.id || "");
+  if (!id) return res.status(400).json({ error: "Missing id" });
+
+  // requireAdmin setzt req.admin (so ist es bei dir üblich). Falls es bei dir anders heißt:
+  // passe diese Zeile an.
+  const meId = String(req.admin?.id || "");
+
+  // sich selbst nicht löschen
+  if (meId && id === meId) {
+    return res.status(400).json({ error: "You cannot delete your own admin account" });
+  }
+
+  const rows = await query<any>(`DELETE FROM admins WHERE id = $1 RETURNING id`, [id]);
+  if (!rows[0]) return res.status(404).json({ error: "Not found" });
+
+  res.json({ ok: true });
+});
