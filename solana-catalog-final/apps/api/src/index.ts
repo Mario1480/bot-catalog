@@ -106,9 +106,6 @@ app.post("/auth/verify", async (req, res) => {
 // public gated
 app.use("/products", productsRouter);
 
-// Admin categories (before /admin)
-app.use("/admin/categories", categoriesRouter);
-
 // admin
 app.use("/admin", adminRouter);
 

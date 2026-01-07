@@ -1,3 +1,4 @@
+// apps/api/src/admin/admin.routes.ts
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import multer from "multer";
@@ -36,17 +37,9 @@ function escapeCsv(v: any) {
   return s;
 }
 
-function buildSearchExtra(fields: Array<{ key: string; value: string }>, tags: string[]): string {
-  const parts: string[] = [];
-  for (const f of fields) {
-    if (!f?.key || !f?.value) continue;
-    parts.push(String(f.key), String(f.value));
-  }
-  for (const t of tags) parts.push(t);
-  return parts.join(" ").slice(0, 5000);
-}
+type FieldKV = { key: string; value: string };
 
-function cleanFields(input: any): Array<{ key: string; value: string }> {
+function cleanFields(input: any): FieldKV[] {
   const arr = Array.isArray(input) ? input : [];
   return arr
     .map((f: any) => ({
@@ -61,6 +54,16 @@ function cleanTags(input: any): string[] {
   return arr.map((t: any) => String(t).trim()).filter(Boolean);
 }
 
+function buildSearchExtra(fields: FieldKV[], tags: string[]): string {
+  const parts: string[] = [];
+  for (const f of fields) {
+    if (!f?.key || !f?.value) continue;
+    parts.push(String(f.key), String(f.value));
+  }
+  for (const t of tags) parts.push(t);
+  return parts.join(" ").slice(0, 5000);
+}
+
 /* ------------------ AUTH ------------------ */
 adminRouter.post("/login", async (req, res) => {
   const { email, password } = req.body ?? {};
@@ -68,13 +71,13 @@ adminRouter.post("/login", async (req, res) => {
 
   const rows = await query<{ id: string; email: string; password_hash: string }>(
     `SELECT id, email, password_hash FROM admins WHERE email = $1`,
-    [email]
+    [String(email)]
   );
 
   const admin = rows[0];
   if (!admin) return res.status(401).json({ error: "Invalid credentials" });
 
-  const ok = await bcrypt.compare(password, admin.password_hash);
+  const ok = await bcrypt.compare(String(password), admin.password_hash);
   if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
   res.json({ token: signAdminJwt(admin.id, admin.email) });
@@ -103,6 +106,10 @@ adminRouter.put("/gate-config", requireAdmin, async (req, res) => {
     min_amount === "" || min_amount === null || min_amount === undefined ? null : Number(min_amount);
   const minUsdVal =
     min_usd === "" || min_usd === null || min_usd === undefined ? null : Number(min_usd);
+
+  if (Number.isNaN(minAmountVal as any) || Number.isNaN(minUsdVal as any)) {
+    return res.status(400).json({ error: "min_amount/min_usd must be a number" });
+  }
 
   if (minAmountVal !== null && minUsdVal !== null) {
     return res.status(400).json({ error: "Set either min_amount or min_usd, not both" });
@@ -154,22 +161,29 @@ adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), asy
 });
 
 /* ------------------ CATEGORIES (Admin) ------------------ */
+/**
+ * Provides:
+ *  GET    /admin/categories
+ *  POST   /admin/categories
+ *  PUT    /admin/categories/:id
+ *  DELETE /admin/categories/:id
+ */
 adminRouter.use("/categories", requireAdmin, categoriesRouter);
 
 /* ------------------ PRODUCTS CRUD ------------------ */
 adminRouter.get("/products", requireAdmin, async (req, res) => {
-  const search = typeof req.query.search === "string" ? req.query.search : "";
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const page = req.query.page ? Number(req.query.page) : 1;
   const pageSize = req.query.pageSize ? Math.min(50, Number(req.query.pageSize)) : 20;
   const offset = (Math.max(1, page) - 1) * pageSize;
 
   const values: any[] = [];
-  let where = "1=1";
+  const where: string[] = ["1=1"];
 
+  // Safe, works without search_vector
   if (search) {
-    values.push(search);
-    // wenn du search_vector nicht hast: ersetze diese Zeile durch ILIKE auf title/search_extra
-    where += ` AND p.search_vector @@ plainto_tsquery('simple', $${values.length})`;
+    values.push(`%${search}%`);
+    where.push(`(p.title ILIKE $${values.length} OR p.search_extra ILIKE $${values.length})`);
   }
 
   values.push(pageSize, offset);
@@ -178,7 +192,7 @@ adminRouter.get("/products", requireAdmin, async (req, res) => {
     `
     SELECT p.id, p.title, p.status, p.target_url, p.updated_at
     FROM products p
-    WHERE ${where}
+    WHERE ${where.join(" AND ")}
     ORDER BY p.updated_at DESC
     LIMIT $${values.length - 1} OFFSET $${values.length}
     `,
@@ -206,7 +220,8 @@ adminRouter.post("/products", requireAdmin, async (req, res) => {
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-  const fieldsList = cleanFields(fields);          // ✅ multi category bleibt erhalten
+  // IMPORTANT: keep duplicates (e.g. multiple category rows)
+  const fieldsList = cleanFields(fields);
   const tagList = cleanTags(tags);
   const searchExtra = buildSearchExtra(fieldsList, tagList);
 
@@ -243,7 +258,8 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-  const fieldsList = cleanFields(fields);          // ✅ multi category bleibt erhalten
+  // IMPORTANT: keep duplicates (e.g. multiple category rows)
+  const fieldsList = cleanFields(fields);
   const tagList = cleanTags(tags);
   const searchExtra = buildSearchExtra(fieldsList, tagList);
 
@@ -278,9 +294,6 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
 });
 
 adminRouter.delete("/products/:id", requireAdmin, async (req, res) => {
-  remind: {
-    // (optional) cascades wären schöner, aber wir löschen sauber per queries
-  }
   const id = String(req.params.id || "");
   await query(`DELETE FROM product_fields WHERE product_id = $1`, [id]);
   await query(`DELETE FROM product_tags WHERE product_id = $1`, [id]);
@@ -309,7 +322,7 @@ adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), as
       if (!title || !target_url) throw new Error("title and target_url are required");
 
       const parsed = JSON.parse(fieldsJson);
-      const fieldsList: Array<{ key: string; value: string }> = [];
+      const fieldsList: FieldKV[] = [];
       if (parsed && typeof parsed === "object") {
         for (const [k, v] of Object.entries(parsed)) {
           const kk = String(k).trim();
@@ -371,11 +384,10 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
     const fields = await query<any>(`SELECT key, value FROM product_fields WHERE product_id = $1`, [p.id]);
     const tags = await query<any>(`SELECT tag FROM product_tags WHERE product_id = $1`, [p.id]);
 
+    // NOTE: CSV export uses object => duplicate keys will be overwritten in this format.
+    // That’s OK for export/import basics, but "multi category" would need a different export schema.
     const fieldsObj: Record<string, any> = {};
-    for (const f of fields) {
-      // Export als Object (CSV), bei duplicate keys wird überschrieben – ist ok fürs Export-Format.
-      fieldsObj[f.key] = f.value;
-    }
+    for (const f of fields) fieldsObj[f.key] = f.value;
 
     const tagsStr = tags.map((t: any) => t.tag).join("|");
 
