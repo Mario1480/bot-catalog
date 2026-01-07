@@ -7,6 +7,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { getGateConfig } from "../gate/gate.js";
 import { getUsdPriceFromCoinGecko } from "../gate/coingecko.js";
+import { exportProductsCsvSemicolon, importProductsCsvSemicolon } from "./productsCsv.js";
 
 import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
@@ -368,168 +369,18 @@ adminRouter.delete("/products/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-/* ------------------ CSV IMPORT/EXPORT ------------------ */
+// CSV import (new semicolon format)
 adminRouter.post("/products/import-csv", requireAdmin, upload.single("file"), async (req, res) => {
   if (!req.file?.buffer) return res.status(400).json({ error: "Missing file" });
-
-  const rows = await parseCsv(req.file.buffer);
-  const report: any[] = [];
-
-  function parsePipeList(v: any): string[] {
-    return String(v ?? "")
-      .split("|")
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-
-  function parseFieldsKV(v: any): FieldKV[] {
-    const raw = String(v ?? "").trim();
-    if (!raw) return [];
-    return raw
-      .split("|")
-      .map((pair) => {
-        const idx = pair.indexOf("=");
-        if (idx === -1) return null;
-        const key = pair.slice(0, idx).trim();
-        const value = pair.slice(idx + 1).trim();
-        if (!key || !value) return null;
-        return { key, value };
-      })
-      .filter(Boolean) as FieldKV[];
-  }
-
-  function parseFieldsJson(v: any): FieldKV[] {
-    const s = String(v ?? "").trim();
-    if (!s) return [];
-    try {
-      const parsed = JSON.parse(s);
-      const out: FieldKV[] = [];
-
-      if (parsed && typeof parsed === "object") {
-        for (const [k, val] of Object.entries(parsed)) {
-          const key = String(k).trim();
-          if (!key) continue;
-
-          // Allow arrays in JSON (e.g. category: ["Bots","Tools"])
-          if (Array.isArray(val)) {
-            for (const vv of val) {
-              const value = String(vv ?? "").trim();
-              if (value) out.push({ key, value });
-            }
-          } else {
-            const value = String(val ?? "").trim();
-            if (value) out.push({ key, value });
-          }
-        }
-      }
-
-      return out;
-    } catch {
-      return [];
-    }
-  }
-
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    try {
-      // New format
-      const title = String(r.title ?? "").trim();
-      const description = String(r.description ?? "");
-      const image_url = String(r.image_url ?? "");
-      const target_url = String(r.target_url ?? "").trim();
-      const status = String(r.status ?? "published").trim() || "published";
-
-      if (!title || !target_url) throw new Error("title and target_url are required");
-
-      const categories = parsePipeList(r.categories);
-      const tags = parsePipeList(r.tags);
-
-      // fields: "k=v|k2=v2"
-      let fieldsList = parseFieldsKV(r.fields);
-
-      // Backward compatible fallback: old export used fields_json
-      if (!fieldsList.length && r.fields_json) {
-        fieldsList = parseFieldsJson(r.fields_json);
-      }
-
-      // Append categories as repeated product_fields rows
-      for (const c of categories) {
-        fieldsList.push({ key: "category", value: c });
-      }
-
-      // IMPORTANT: keep duplicates (e.g. multiple category rows)
-      const searchExtra = buildSearchExtra(fieldsList, tags);
-
-      const up = await query<{ id: string }>(
-        `
-        INSERT INTO products (title, description, image_url, target_url, status, search_extra)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (target_url) DO UPDATE
-          SET title = EXCLUDED.title,
-              description = EXCLUDED.description,
-              image_url = EXCLUDED.image_url,
-              status = EXCLUDED.status,
-              search_extra = EXCLUDED.search_extra,
-              updated_at = now()
-        RETURNING id
-        `,
-        [title, description, image_url, target_url, status, searchExtra]
-      );
-
-      const productId = up[0].id;
-
-      await query(`DELETE FROM product_fields WHERE product_id = $1`, [productId]);
-      await query(`DELETE FROM product_tags WHERE product_id = $1`, [productId]);
-
-      for (const f of fieldsList) {
-        await query(`INSERT INTO product_fields (product_id, key, value) VALUES ($1, $2, $3)`, [
-          productId,
-          f.key,
-          f.value,
-        ]);
-      }
-      for (const t of tags) {
-        await query(`INSERT INTO product_tags (product_id, tag) VALUES ($1, $2)`, [productId, t]);
-      }
-
-      report.push({ row: i + 2, ok: true });
-    } catch (e: any) {
-      report.push({ row: i + 2, ok: false, error: e.message ?? String(e) });
-    }
-  }
-
-  res.json({ imported: report.filter((r) => r.ok).length, report });
+  const out = await importProductsCsvSemicolon(req.file.buffer);
+  res.json(out);
 });
 
+// CSV export (new semicolon format)
 adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
-  const products = await query<any>(`SELECT * FROM products ORDER BY updated_at DESC`);
-
-  let csv = "title,description,image_url,target_url,status,fields_json,tags\n";
-
-  for (const p of products) {
-    const fields = await query<any>(`SELECT key, value FROM product_fields WHERE product_id = $1`, [p.id]);
-    const tags = await query<any>(`SELECT tag FROM product_tags WHERE product_id = $1`, [p.id]);
-
-    const fieldsObj: Record<string, any> = {};
-    for (const f of fields) fieldsObj[f.key] = f.value;
-
-    const tagsStr = tags.map((t: any) => t.tag).join("|");
-
-    const line = [
-      escapeCsv(p.title),
-      escapeCsv(p.description),
-      escapeCsv(p.image_url),
-      escapeCsv(p.target_url),
-      escapeCsv(p.status),
-      escapeCsv(JSON.stringify(fieldsObj)),
-      escapeCsv(tagsStr),
-    ].join(",");
-
-    csv += line + "\n";
-  }
-
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", "attachment; filename=products.csv");
+  const csv = await exportProductsCsvSemicolon();
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=products_export.csv");
   res.send(csv);
 });
 

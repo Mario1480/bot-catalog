@@ -1,78 +1,131 @@
+// apps/web/src/pages/admin/csv.tsx
 import { useState } from "react";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 import { apiBase } from "../../lib/api";
 
-export default function AdminCsv() {
+export default function AdminCsvPage() {
   const [err, setErr] = useState("");
-  const [report, setReport] = useState<any>(null);
+  const [msg, setMsg] = useState<string>("");
+  const [busy, setBusy] = useState(false);
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
   const API = apiBase();
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
 
-  async function upload(file: File) {
+  async function exportCsv() {
     setErr("");
-    setReport(null);
+    setMsg("");
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/admin/products/export-csv`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-    const form = new FormData();
-    form.append("file", file);
+      const text = await res.text();
+      if (!res.ok) {
+        // backend könnte JSON oder text liefern
+        throw new Error(text || `Export failed (${res.status})`);
+      }
 
-    const res = await fetch(`${API}/admin/products/import-csv`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: form
-    });
+      const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
 
-    const data = await res.json();
-    if (!res.ok) {
-      setErr(data?.error || "Upload failed");
-      return;
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "products_export.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      setMsg("CSV export downloaded.");
+    } catch (e: any) {
+      setErr(e?.message || "Export failed");
+    } finally {
+      setBusy(false);
     }
-    setReport(data);
   }
 
-  function exportCsv() {
-    window.open(`${API}/admin/products/export-csv`, "_blank");
+  async function importCsv(file: File) {
+    setErr("");
+    setMsg("");
+    setBusy(true);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+
+      const res = await fetch(`${API}/admin/products/import-csv`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: form,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Import failed");
+
+      setMsg(`Imported: ${data.imported ?? 0}`);
+    } catch (e: any) {
+      setErr(e?.message || "Import failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>CSV Import / Export</h1>
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
+    <AdminLayout title="CSV Import / Export">
+      <div className="card" style={{ padding: 16 }}>
+        {err ? (
+          <div className="card" style={{ padding: 12, marginBottom: 12, borderColor: "#6b1b1b" }}>
+            <div style={{ fontWeight: 800 }}>Error</div>
+            <div style={{ opacity: 0.9 }}>{err}</div>
+          </div>
+        ) : null}
 
-      <div style={{ marginTop: 12 }}>
-        <button onClick={exportCsv} style={{ padding: "10px 14px" }}>
-          Export CSV
-        </button>
+        {msg ? (
+          <div className="card" style={{ padding: 12, marginBottom: 12 }}>
+            <div style={{ fontWeight: 800 }}>OK</div>
+            <div style={{ opacity: 0.9 }}>{msg}</div>
+          </div>
+        ) : null}
+
+        <div style={{ display: "grid", gap: 12, maxWidth: 520 }}>
+          <button className="btn" onClick={exportCsv} disabled={busy}>
+            {busy ? "Working…" : "Export CSV"}
+          </button>
+
+          <label style={{ display: "grid", gap: 8 }}>
+            <div style={{ opacity: 0.8 }}>
+              Import CSV (semicolon “;” format like your file)
+            </div>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importCsv(f);
+              }}
+            />
+          </label>
+
+          <div style={{ opacity: 0.75, fontSize: 13, lineHeight: 1.4 }}>
+            <div><b>Expected columns (semicolon separated):</b></div>
+            <div>
+              ID; Name; Description; Image; Category; Tags; Trading; Laverage; Price...Loss (SL);
+              Take-Profit (TP); Minimum Invest; Start Level; Bot Link
+            </div>
+            <div style={{ marginTop: 8 }}>
+              Categories can be separated by <code>|</code> or <code>,</code>. Tags too.
+            </div>
+          </div>
+        </div>
       </div>
-
-      <div style={{ marginTop: 16 }}>
-        <input
-          type="file"
-          accept=".csv"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) upload(f);
-          }}
-        />
-      </div>
-
-      {report && (
-        <pre
-          style={{
-            marginTop: 16,
-            background: "#f6f6f6",
-            padding: 12,
-            borderRadius: 8,
-            overflowX: "auto"
-          }}
-        >
-          {JSON.stringify(report, null, 2)}
-        </pre>
-      )}
-
-      <p style={{ marginTop: 16, opacity: 0.7 }}>
-        CSV columns: title,description,image_url,target_url,status,fields_json,tags
-      </p>
-      <p style={{ opacity: 0.7 }}>tags separated by | (pipe). fields_json is a JSON object.</p>
-    </div>
+    </AdminLayout>
   );
 }
