@@ -66,18 +66,23 @@ function buildSearchExtra(fields: FieldKV[], tags: string[]): string {
 
 /* ------------------ AUTH ------------------ */
 adminRouter.post("/login", async (req, res) => {
-  const { email, password } = req.body ?? {};
+  const emailRaw = String(req.body?.email ?? "");
+  const passRaw = String(req.body?.password ?? "");
+
+  const email = emailRaw.trim().toLowerCase();
+  const password = passRaw;
+
   if (!email || !password) return res.status(400).json({ error: "Missing credentials" });
 
   const rows = await query<{ id: string; email: string; password_hash: string }>(
     `SELECT id, email, password_hash FROM admins WHERE email = $1`,
-    [String(email)]
+    [email]
   );
 
   const admin = rows[0];
   if (!admin) return res.status(401).json({ error: "Invalid credentials" });
 
-  const ok = await bcrypt.compare(String(password), admin.password_hash);
+  const ok = await bcrypt.compare(password, admin.password_hash);
   if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
   res.json({ token: signAdminJwt(admin.id, admin.email) });
@@ -161,13 +166,6 @@ adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), asy
 });
 
 /* ------------------ CATEGORIES (Admin) ------------------ */
-/**
- * Provides:
- *  GET    /admin/categories
- *  POST   /admin/categories
- *  PUT    /admin/categories/:id
- *  DELETE /admin/categories/:id
- */
 adminRouter.use("/categories", requireAdmin, categoriesRouter);
 
 /* ------------------ PRODUCTS CRUD ------------------ */
@@ -180,7 +178,6 @@ adminRouter.get("/products", requireAdmin, async (req, res) => {
   const values: any[] = [];
   const where: string[] = ["1=1"];
 
-  // Safe, works without search_vector
   if (search) {
     values.push(`%${search}%`);
     where.push(`(p.title ILIKE $${values.length} OR p.search_extra ILIKE $${values.length})`);
@@ -220,8 +217,7 @@ adminRouter.post("/products", requireAdmin, async (req, res) => {
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-  // IMPORTANT: keep duplicates (e.g. multiple category rows)
-  const fieldsList = cleanFields(fields);
+  const fieldsList = cleanFields(fields); // keep duplicates for multi-category
   const tagList = cleanTags(tags);
   const searchExtra = buildSearchExtra(fieldsList, tagList);
 
@@ -258,8 +254,7 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) return res.status(400).json({ error: "title and target_url are required" });
 
-  // IMPORTANT: keep duplicates (e.g. multiple category rows)
-  const fieldsList = cleanFields(fields);
+  const fieldsList = cleanFields(fields); // keep duplicates for multi-category
   const tagList = cleanTags(tags);
   const searchExtra = buildSearchExtra(fieldsList, tagList);
 
@@ -384,8 +379,6 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
     const fields = await query<any>(`SELECT key, value FROM product_fields WHERE product_id = $1`, [p.id]);
     const tags = await query<any>(`SELECT tag FROM product_tags WHERE product_id = $1`, [p.id]);
 
-    // NOTE: CSV export uses object => duplicate keys will be overwritten in this format.
-    // That’s OK for export/import basics, but "multi category" would need a different export schema.
     const fieldsObj: Record<string, any> = {};
     for (const f of fields) fieldsObj[f.key] = f.value;
 
@@ -409,31 +402,27 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
   res.send(csv);
 });
 
-// ------------------ ADMINS CRUD ------------------
-
+/* ------------------ ADMINS CRUD ------------------ */
 // GET /admin/admins
 adminRouter.get("/admins", requireAdmin, async (_req, res) => {
   const rows = await query<any>(
-    `SELECT id, email, created_at, updated_at
-     FROM admins
-     ORDER BY created_at DESC`
+    `SELECT id, email, created_at, updated_at FROM admins ORDER BY created_at DESC`
   );
   res.json(rows);
 });
 
 // POST /admin/admins
 adminRouter.post("/admins", requireAdmin, async (req, res) => {
-  const { email, password } = req.body ?? {};
-  const e = String(email ?? "").trim().toLowerCase();
-  const p = String(password ?? "");
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const password = String(req.body?.password ?? "");
 
-  if (!e || !p) return res.status(400).json({ error: "email and password are required" });
-  if (p.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
+  if (!email || !password) return res.status(400).json({ error: "email and password are required" });
+  if (password.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
 
-  const existing = await query<any>(`SELECT id FROM admins WHERE email = $1`, [e]);
+  const existing = await query<any>(`SELECT id FROM admins WHERE email = $1`, [email]);
   if (existing[0]) return res.status(409).json({ error: "Admin already exists" });
 
-  const password_hash = await bcrypt.hash(p, 10);
+  const password_hash = await bcrypt.hash(password, 10);
 
   const rows = await query<any>(
     `
@@ -441,9 +430,34 @@ adminRouter.post("/admins", requireAdmin, async (req, res) => {
     VALUES ($1, $2)
     RETURNING id, email, created_at, updated_at
     `,
-    [e, password_hash]
+    [email, password_hash]
   );
 
+  res.json(rows[0]);
+});
+
+// PUT /admin/admins/:id  (Reset password)
+adminRouter.put("/admins/:id", requireAdmin, async (req: any, res) => {
+  const id = String(req.params.id || "");
+  const password = String(req.body?.password ?? "");
+
+  if (!id) return res.status(400).json({ error: "Missing id" });
+  if (!password) return res.status(400).json({ error: "password is required" });
+  if (password.length < 8) return res.status(400).json({ error: "password must be at least 8 characters" });
+
+  const password_hash = await bcrypt.hash(password, 10);
+
+  const rows = await query<any>(
+    `
+    UPDATE admins
+    SET password_hash = $2
+    WHERE id = $1
+    RETURNING id, email, created_at, updated_at
+    `,
+    [id, password_hash]
+  );
+
+  if (!rows[0]) return res.status(404).json({ error: "Not found" });
   res.json(rows[0]);
 });
 
@@ -452,11 +466,7 @@ adminRouter.delete("/admins/:id", requireAdmin, async (req: any, res) => {
   const id = String(req.params.id || "");
   if (!id) return res.status(400).json({ error: "Missing id" });
 
-  // requireAdmin setzt req.admin (so ist es bei dir üblich). Falls es bei dir anders heißt:
-  // passe diese Zeile an.
   const meId = String(req.admin?.id || "");
-
-  // sich selbst nicht löschen
   if (meId && id === meId) {
     return res.status(400).json({ error: "You cannot delete your own admin account" });
   }
