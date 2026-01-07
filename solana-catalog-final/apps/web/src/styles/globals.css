@@ -77,5 +77,5 @@ a { color: inherit; }
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: var(--brand);
+  background: #4bfa00de;
 }
