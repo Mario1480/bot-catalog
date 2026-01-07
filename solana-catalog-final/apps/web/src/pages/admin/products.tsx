@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { AdminLayout } from "../../components/admin/AdminLayout";
+import { AdminLayout } from "../../components/AdminLayout";
 
 export default function AdminProductsList() {
   const [items, setItems] = useState<any[]>([]);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<"all" | "published" | "draft">("all");
   const [err, setErr] = useState("");
 
   const token =
@@ -14,17 +13,9 @@ export default function AdminProductsList() {
   async function load() {
     setErr("");
     try {
-      const qs = new URLSearchParams();
-      if (search) qs.set("search", search);
-      if (status !== "all") qs.set("status", status);
-
-      const out = await apiFetch(
-        `/admin/products${qs.toString() ? `?${qs.toString()}` : ""}`,
-        { method: "GET" },
-        token
-      );
-
-      setItems(Array.isArray(out) ? out : out?.items || []);
+      const qs = search ? `?search=${encodeURIComponent(search)}` : "";
+      const out = await apiFetch(`/admin/products${qs}`, { method: "GET" }, token);
+      setItems(out);
     } catch (e: any) {
       setErr(e.message || "Failed");
     }
@@ -32,85 +23,89 @@ export default function AdminProductsList() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
-    <div style={{ maxWidth: 980, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>Products</h1>
+    <AdminLayout title="Products">
+      <div style={{ maxWidth: 1100 }}>
+        {err && <p style={{ color: "crimson" }}>{err}</p>}
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={() => (window.location.href = "/admin")} style={{ padding: "10px 14px" }}>
-            Back
-          </button>
-          <button onClick={() => (window.location.href = "/admin/products-edit")} style={{ padding: "10px 14px" }}>
-            + Create
-          </button>
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <input
+              className="input"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search..."
+              style={{ flex: 1, minWidth: 220 }}
+            />
+            <button className="btn" onClick={load}>
+              Search
+            </button>
+            <button
+              className="btn btnPrimary"
+              onClick={() => (window.location.href = "/admin/products-edit")}
+            >
+              Create
+            </button>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 0, marginTop: 14, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Title
+                </th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Status
+                </th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Updated
+                </th>
+                <th style={{ borderBottom: "1px solid var(--border)", padding: 12 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((p) => (
+                <tr key={p.id}>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    {p.title}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    {p.status}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)", textAlign: "right" }}>
+                    <button
+                      className="btn"
+                      onClick={() => (window.location.href = `/admin/products-edit?id=${p.id}`)}
+                    >
+                      Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ padding: 14, opacity: 0.75 }}>
+                    No products found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div style={{ marginTop: 12, opacity: 0.7, fontSize: 13 }}>
+          Tip: use the editor page to upload an image and edit fields/tags.
         </div>
       </div>
-
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
-
-      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search title/description..."
-          style={{ flex: 1, minWidth: 240, padding: 10 }}
-        />
-
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value as any)}
-          style={{ padding: 10, minWidth: 160 }}
-        >
-          <option value="all">Status: All</option>
-          <option value="published">Status: Published</option>
-          <option value="draft">Status: Draft</option>
-        </select>
-
-        <button onClick={load} style={{ padding: "10px 14px" }}>
-          Apply
-        </button>
-      </div>
-
-      <table style={{ width: "100%", marginTop: 16, borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Title</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Status</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Updated</th>
-            <th style={{ borderBottom: "1px solid #ddd", padding: 8 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((p) => (
-            <tr key={p.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{p.title}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>{p.status}</td>
-              <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>
-                {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
-              </td>
-              <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right" }}>
-                <button
-                  onClick={() => (window.location.href = `/admin/products-edit?id=${p.id}`)}
-                  style={{ padding: "8px 12px" }}
-                >
-                  Edit
-                </button>
-              </td>
-            </tr>
-          ))}
-
-          {!items.length && (
-            <tr>
-              <td colSpan={4} style={{ padding: 12, opacity: 0.7 }}>
-                No products found.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+    </AdminLayout>
   );
 }

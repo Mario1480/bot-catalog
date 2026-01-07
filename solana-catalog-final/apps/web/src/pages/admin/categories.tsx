@@ -1,193 +1,210 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch } from "../../lib/api";
-import { AdminLayout } from "../../components/admin/AdminLayout";
+import { AdminLayout } from "../../components/AdminLayout";
 
-type Cat = {
+type Category = {
   id: string;
   name: string;
   sort_order: number;
   active: boolean;
+  created_at: string;
+  updated_at: string;
 };
 
 export default function AdminCategoriesPage() {
-  const [items, setItems] = useState<Cat[]>([]);
-  const [err, setErr] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  const [name, setName] = useState("");
-  const [sortOrder, setSortOrder] = useState("0");
-  const [active, setActive] = useState(true);
-
   const token =
     typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
 
-  async function load() {
+  const [items, setItems] = useState<Category[]>([]);
+  const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const [name, setName] = useState("");
+  const [sortOrder, setSortOrder] = useState<number>(0);
+  const [active, setActive] = useState(true);
+
+  async function load(includeInactive = true) {
     setErr("");
     try {
-      const out = await apiFetch("/admin/categories", { method: "GET" }, token);
-      setItems(Array.isArray(out) ? out : out?.items || []);
+      setLoading(true);
+      const qs = includeInactive ? "?includeInactive=1" : "";
+      const out = await apiFetch(`/admin/categories${qs}`, { method: "GET" }, token);
+      setItems(Array.isArray(out) ? out : []);
     } catch (e: any) {
       setErr(e.message || "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function create() {
+    setErr("");
+    try {
+      const payload = { name, sort_order: sortOrder, active };
+      const created = await apiFetch(
+        "/admin/categories",
+        { method: "POST", body: JSON.stringify(payload) },
+        token
+      );
+      setName("");
+      setSortOrder(0);
+      setActive(true);
+      setItems((prev) => [created, ...prev].sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name)));
+    } catch (e: any) {
+      setErr(e.message || "Create failed");
+    }
+  }
+
+  async function toggleActive(cat: Category) {
+    setErr("");
+    try {
+      const updated = await apiFetch(
+        `/admin/categories/${cat.id}`,
+        { method: "PUT", body: JSON.stringify({ active: !cat.active }) },
+        token
+      );
+      setItems((prev) => prev.map((x) => (x.id === cat.id ? updated : x)));
+    } catch (e: any) {
+      setErr(e.message || "Update failed");
+    }
+  }
+
+  async function updateSort(cat: Category, next: number) {
+    setErr("");
+    try {
+      const updated = await apiFetch(
+        `/admin/categories/${cat.id}`,
+        { method: "PUT", body: JSON.stringify({ sort_order: next }) },
+        token
+      );
+      setItems((prev) =>
+        prev
+          .map((x) => (x.id === cat.id ? updated : x))
+          .sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name))
+      );
+    } catch (e: any) {
+      setErr(e.message || "Update failed");
+    }
+  }
+
+  async function remove(cat: Category) {
+    if (!confirm(`Delete category "${cat.name}"?`)) return;
+    setErr("");
+    try {
+      await apiFetch(`/admin/categories/${cat.id}`, { method: "DELETE" }, token);
+      setItems((prev) => prev.filter((x) => x.id !== cat.id));
+    } catch (e: any) {
+      setErr(e.message || "Delete failed");
     }
   }
 
   useEffect(() => {
-    load();
+    load(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sorted = useMemo(() => {
-    return [...items].sort((a, b) => (a.sort_order - b.sort_order) || a.name.localeCompare(b.name));
-  }, [items]);
-
-  async function create() {
-    setErr("");
-    setSaving(true);
-    try {
-      const payload = {
-        name: name.trim(),
-        sort_order: Number(sortOrder || 0),
-        active: !!active,
-      };
-      await apiFetch("/admin/categories", { method: "POST", body: JSON.stringify(payload) }, token);
-      setName("");
-      setSortOrder("0");
-      setActive(true);
-      await load();
-    } catch (e: any) {
-      setErr(e.message || "Create failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function update(id: string, patch: Partial<Cat>) {
-    setErr("");
-    setSaving(true);
-    try {
-      await apiFetch(`/admin/categories/${id}`, { method: "PUT", body: JSON.stringify(patch) }, token);
-      await load();
-    } catch (e: any) {
-      setErr(e.message || "Update failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function del(id: string) {
-    if (!confirm("Delete this category?")) return;
-    setErr("");
-    setSaving(true);
-    try {
-      await apiFetch(`/admin/categories/${id}`, { method: "DELETE" }, token);
-      await load();
-    } catch (e: any) {
-      setErr(e.message || "Delete failed");
-    } finally {
-      setSaving(false);
-    }
-  }
-
   return (
-    <div style={{ maxWidth: 980, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <h1 style={{ margin: 0 }}>Categories</h1>
-        <button onClick={() => (window.location.href = "/admin")} style={{ padding: "10px 14px" }}>
-          Back
-        </button>
-      </div>
+    <AdminLayout title="Categories">
+      <div style={{ maxWidth: 1100 }}>
+        {err && <p style={{ color: "crimson" }}>{err}</p>}
 
-      {err && <p style={{ color: "crimson" }}>{err}</p>}
+        <div className="card" style={{ padding: 14 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Create category</div>
 
-      <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12, marginTop: 14 }}>
-        <div style={{ fontWeight: 800, marginBottom: 10 }}>Add Category</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 140px 140px", gap: 10, alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Name</div>
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Bots" />
+            </label>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 140px auto", gap: 10, alignItems: "center" }}>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Name (e.g. Bots)"
-            style={{ padding: 10 }}
-          />
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Sort order</div>
+              <input
+                className="input"
+                type="number"
+                value={sortOrder}
+                onChange={(e) => setSortOrder(Number(e.target.value))}
+              />
+            </label>
 
-          <input
-            value={sortOrder}
-            onChange={(e) => setSortOrder(e.target.value)}
-            placeholder="Sort"
-            style={{ padding: 10 }}
-          />
+            <label style={{ display: "grid", gap: 6 }}>
+              <div style={{ fontSize: 12, opacity: 0.8 }}>Active</div>
+              <select className="input" value={active ? "1" : "0"} onChange={(e) => setActive(e.target.value === "1")}>
+                <option value="1">true</option>
+                <option value="0">false</option>
+              </select>
+            </label>
 
-          <label style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-            Active
-          </label>
+            <button className="btn btnPrimary" onClick={create} disabled={!name.trim()}>
+              Add
+            </button>
+          </div>
 
-          <button disabled={saving} onClick={create} style={{ padding: "10px 14px" }}>
-            {saving ? "Saving…" : "Add"}
-          </button>
+          <div style={{ marginTop: 12, display: "flex", gap: 10 }}>
+            <button className="btn" onClick={() => load(true)} disabled={loading}>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div className="card" style={{ padding: 0, marginTop: 14, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Name
+                </th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Sort
+                </th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Active
+                </th>
+                <th style={{ borderBottom: "1px solid var(--border)", padding: 12 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((c) => (
+                <tr key={c.id} style={{ opacity: c.active ? 1 : 0.6 }}>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    {c.name}
+                  </td>
+
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    <input
+                      className="input"
+                      type="number"
+                      value={c.sort_order ?? 0}
+                      onChange={(e) => updateSort(c, Number(e.target.value))}
+                      style={{ maxWidth: 120 }}
+                    />
+                  </td>
+
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    <button className="btn" onClick={() => toggleActive(c)}>
+                      {c.active ? "Active" : "Inactive"}
+                    </button>
+                  </td>
+
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)", textAlign: "right" }}>
+                    <button className="btn" onClick={() => remove(c)}>
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={4} style={{ padding: 14, opacity: 0.75 }}>
+                    No categories yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
-
-      <table style={{ width: "100%", marginTop: 16, borderCollapse: "collapse" }}>
-        <thead>
-          <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Name</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Sort</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Active</th>
-            <th style={{ borderBottom: "1px solid #ddd", padding: 8 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((c) => (
-            <tr key={c.id}>
-              <td style={{ padding: 8, borderBottom: "1px solid #eee" }}>
-                <input
-                  value={c.name}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, name: v } : x)));
-                  }}
-                  onBlur={(e) => update(c.id, { name: e.target.value.trim() })}
-                  style={{ padding: 8, width: "100%" }}
-                />
-              </td>
-
-              <td style={{ padding: 8, borderBottom: "1px solid #eee", width: 120 }}>
-                <input
-                  value={String(c.sort_order)}
-                  onChange={(e) => {
-                    const v = Number(e.target.value || 0);
-                    setItems((prev) => prev.map((x) => (x.id === c.id ? { ...x, sort_order: v } : x)));
-                  }}
-                  onBlur={(e) => update(c.id, { sort_order: Number(e.target.value || 0) })}
-                  style={{ padding: 8, width: "100%" }}
-                />
-              </td>
-
-              <td style={{ padding: 8, borderBottom: "1px solid #eee", width: 120 }}>
-                <input
-                  type="checkbox"
-                  checked={!!c.active}
-                  onChange={(e) => update(c.id, { active: e.target.checked })}
-                />
-              </td>
-
-              <td style={{ padding: 8, borderBottom: "1px solid #eee", textAlign: "right", width: 120 }}>
-                <button onClick={() => del(c.id)} disabled={saving} style={{ padding: "8px 12px" }}>
-                  Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-
-          {!sorted.length && (
-            <tr>
-              <td colSpan={4} style={{ padding: 12, opacity: 0.7 }}>
-                No categories yet.
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
+    </AdminLayout>
   );
 }
