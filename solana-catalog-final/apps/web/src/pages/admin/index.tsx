@@ -1,33 +1,249 @@
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { apiFetch } from "../../lib/api";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 
-export default function AdminHome() {
+function isAuthErrorMessage(msg: string) {
+  const m = (msg || "").toLowerCase();
   return (
-    <AdminLayout title="Dashboard">
-      <div style={{ display: "grid", gap: 14 }}>
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 6 }}>Quick actions</div>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <Link className="btn btnPrimary" href="/admin/products-edit">
-              + New product
-            </Link>
-            <Link className="btn" href="/admin/products">
-              Products
-            </Link>
-            <Link className="btn" href="/admin/gate">
-              Token gating
-            </Link>
-          </div>
-        </div>
+    m.includes("unauthorized") ||
+    m.includes("invalid token") ||
+    m.includes("jwt") ||
+    m.includes("token expired") ||
+    m.includes("forbidden") ||
+    m.includes("status 401") ||
+    m.includes("status 403")
+  );
+}
 
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900 }}>Coming next</div>
-          <ul style={{ margin: "10px 0 0 18px", color: "var(--muted)", lineHeight: 1.6 }}>
-            <li>KPIs (products, views, conversions)</li>
-            <li>Latest edits</li>
-            <li>Token-gate health check</li>
-          </ul>
-        </div>
+type GateConfig = {
+  enabled?: boolean;
+  mint_address?: string;
+  min_amount?: number | null;
+  min_usd?: number | null;
+  coingecko_mode?: string | null;
+  updated_at?: string;
+};
+
+type Category = {
+  id: string;
+  name: string;
+  sort_order: number;
+  active: boolean;
+  updated_at?: string;
+};
+
+type ProductRow = {
+  id: string;
+  title: string;
+  status: string;
+  updated_at?: string;
+};
+
+export default function AdminDashboardPage() {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+
+  const [gate, setGate] = useState<GateConfig | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<ProductRow[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!token) {
+      window.location.href = "/admin/login";
+      return;
+    }
+
+    (async () => {
+      setLoading(true);
+      setErr("");
+
+      try {
+        // parallel laden
+        const [gateOut, catsOut, prodOut] = await Promise.all([
+          apiFetch("/admin/gate-config", { method: "GET" }, token),
+          apiFetch("/admin/categories?includeInactive=1", { method: "GET" }, token),
+          apiFetch("/admin/products?page=1&pageSize=200", { method: "GET" }, token),
+        ]);
+
+        setGate(gateOut || null);
+        setCategories(Array.isArray(catsOut) ? catsOut : []);
+        setProducts(Array.isArray(prodOut) ? prodOut : []);
+      } catch (e: any) {
+        const msg = (e?.message || "Failed to load dashboard").toString();
+        setErr(msg);
+
+        if (isAuthErrorMessage(msg)) {
+          try {
+            localStorage.removeItem("admin_jwt");
+          } catch {}
+          window.location.href = "/admin/login";
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token]);
+
+  const stats = useMemo(() => {
+    const totalCategories = categories.length;
+    const activeCategories = categories.filter((c) => c.active).length;
+
+    const totalProducts = products.length;
+    const publishedProducts = products.filter((p) => p.status === "published").length;
+    const draftProducts = products.filter((p) => p.status === "draft").length;
+
+    const gateEnabled = !!gate?.enabled;
+    const gateMode =
+      gate?.min_amount != null ? "Min Amount" : gate?.min_usd != null ? "Min USD" : "Not set";
+    const gateExtra =
+      gate?.min_amount != null
+        ? `≥ ${gate.min_amount}`
+        : gate?.min_usd != null
+        ? `≥ $${gate.min_usd}`
+        : "";
+
+    return {
+      totalCategories,
+      activeCategories,
+      totalProducts,
+      publishedProducts,
+      draftProducts,
+      gateEnabled,
+      gateMode,
+      gateExtra,
+    };
+  }, [categories, products, gate]);
+
+  return (
+    <AdminLayout title="Admin Dashboard">
+      <div className="container" style={{ maxWidth: 1100 }}>
+        {err ? (
+          <div
+            className="card"
+            style={{
+              padding: 14,
+              marginBottom: 14,
+              borderColor: "rgba(255,80,80,.35)",
+              background: "rgba(255,80,80,.08)",
+            }}
+          >
+            <div style={{ fontWeight: 900 }}>Error</div>
+            <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+          </div>
+        ) : null}
+
+        {loading ? (
+          <div className="card" style={{ padding: 16 }}>
+            Loading…
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: 14,
+              }}
+            >
+              {/* Gate */}
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ fontWeight: 900, fontSize: 16 }}>Token Gating</div>
+                  <span
+                    className="badge"
+                    style={{
+                      background: stats.gateEnabled ? "rgba(0,255,160,.12)" : "rgba(255,80,80,.10)",
+                      borderColor: stats.gateEnabled ? "rgba(0,255,160,.25)" : "rgba(255,80,80,.25)",
+                    }}
+                  >
+                    <span className="badgeDot" />
+                    {stats.gateEnabled ? "Enabled" : "Disabled"}
+                  </span>
+                </div>
+
+                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+                  Mode: <span style={{ color: "var(--text)" }}>{stats.gateMode}</span>{" "}
+                  {stats.gateExtra ? (
+                    <span style={{ color: "var(--text)", opacity: 0.9 }}>({stats.gateExtra})</span>
+                  ) : null}
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <Link className="btn btnPrimary" href="/admin/gate" style={{ width: "100%" as any }}>
+                    Open Token Gating
+                  </Link>
+                </div>
+              </div>
+
+              {/* Categories */}
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ fontWeight: 900, fontSize: 16 }}>Categories</div>
+                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+                  Active: <span style={{ color: "var(--text)" }}>{stats.activeCategories}</span>
+                  <br />
+                  Total: <span style={{ color: "var(--text)" }}>{stats.totalCategories}</span>
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <Link className="btn" href="/admin/categories" style={{ width: "100%" as any }}>
+                    Manage Categories
+                  </Link>
+                </div>
+              </div>
+
+              {/* Products */}
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ fontWeight: 900, fontSize: 16 }}>Products</div>
+                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
+                  Total: <span style={{ color: "var(--text)" }}>{stats.totalProducts}</span>
+                  <br />
+                  Published: <span style={{ color: "var(--text)" }}>{stats.publishedProducts}</span>{" "}
+                  · Draft: <span style={{ color: "var(--text)" }}>{stats.draftProducts}</span>
+                </div>
+
+                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                  <Link className="btn" href="/admin/products" style={{ width: "100%" as any }}>
+                    Open Products
+                  </Link>
+                  <Link className="btn btnPrimary" href="/admin/products-edit" style={{ width: "100%" as any }}>
+                    + Create Product
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick actions */}
+            <div className="card" style={{ padding: 16, marginTop: 14 }}>
+              <div style={{ fontWeight: 900, marginBottom: 10 }}>Quick actions</div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Link className="btn" href="/admin/admins">
+                  Admins
+                </Link>
+                <Link className="btn" href="/admin/csv">
+                  CSV Import/Export
+                </Link>
+                <button
+                  className="btn"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem("admin_jwt");
+                    } catch {}
+                    window.location.href = "/admin/login";
+                  }}
+                >
+                  Logout
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </AdminLayout>
   );
