@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "../../lib/api";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
 type Cat = {
   id: string;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiBase, apiFetch } from "../../lib/api";
+import { AdminLayout } from "../../components/admin/AdminLayout";
 
 const CATEGORY_OPTIONS = ["Bots", "Signals", "Indicators", "Education", "Tools", "Other"] as const;
 
