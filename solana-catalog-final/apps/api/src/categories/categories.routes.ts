@@ -1,38 +1,41 @@
 import { Router } from "express";
-import { verifyAdminJwt } from "../auth/jwt.js";
-import { createCategory, deleteCategory, listCategories } from "./categories.service.js";
+import {
+  listCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+} from "./categories.service.js";
 
 export const categoriesRouter = Router();
 
-function requireAdmin(req: any, res: any, next: any) {
-  const auth = req.headers.authorization || "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!token) return res.status(401).json({ error: "Missing token" });
+// GET /admin/categories?includeInactive=1
+categoriesRouter.get("/", async (req, res) => {
+  const includeInactive =
+    String(req.query.includeInactive || "") === "1" ||
+    String(req.query.includeInactive || "").toLowerCase() === "true";
 
-  try {
-    req.admin = verifyAdminJwt(token);
-    next();
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-}
-
-categoriesRouter.get("/", requireAdmin, async (_req, res) => {
-  res.json(await listCategories());
+  const rows = await listCategories({ includeInactive });
+  res.json(rows);
 });
 
-categoriesRouter.post("/", requireAdmin, async (req, res) => {
-  const name = String(req.body?.name || "").trim();
-  if (!name) return res.status(400).json({ error: "Missing name" });
-
-  const out = await createCategory(name);
-  res.json(out);
+// POST /admin/categories
+categoriesRouter.post("/", async (req, res) => {
+  const { name, sort_order, active } = req.body ?? {};
+  const created = await createCategory({ name, sort_order, active });
+  res.json(created);
 });
 
-categoriesRouter.delete("/:id", requireAdmin, async (req, res) => {
+// PUT /admin/categories/:id
+categoriesRouter.put("/:id", async (req, res) => {
   const id = String(req.params.id || "");
-  if (!id) return res.status(400).json({ error: "Missing id" });
+  const { name, sort_order, active } = req.body ?? {};
+  const updated = await updateCategory(id, { name, sort_order, active });
+  res.json(updated);
+});
 
-  await deleteCategory(id);
-  res.json({ ok: true });
+// DELETE /admin/categories/:id
+categoriesRouter.delete("/:id", async (req, res) => {
+  const id = String(req.params.id || "");
+  const out = await deleteCategory(id);
+  res.json(out);
 });
