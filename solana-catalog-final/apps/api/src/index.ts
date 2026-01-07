@@ -12,7 +12,7 @@ import { signUserJwt } from "./auth/jwt.js";
 
 import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
-import { categoriesRouter } from "./categories/categories.routes.js"; // ✅ NEW
+import { categoriesRouter } from "./categories/categories.routes.js";
 
 const app = express();
 
@@ -40,8 +40,7 @@ const corsOptions: cors.CorsOptions = {
     const o = origin.replace(/\/$/, "");
     const ok = allowedOrigins.some((x) => x.replace(/\/$/, "") === o);
 
-    // Wichtig: bei "false" fehlen die Header -> Browser meldet "Missing Allow Origin"
-    // Daher bei nicht erlaubten Origins sauber rejecten:
+    // IMPORTANT: reject properly so browser sees a CORS error (not a silent missing header)
     if (!ok) return cb(new Error("Not allowed by CORS"));
 
     return cb(null, true);
@@ -49,15 +48,17 @@ const corsOptions: cors.CorsOptions = {
 
   credentials: true,
 
-  // Preflight muss diese Header erlauben (Authorization ist wichtig!)
+  // Preflight must allow these headers (Authorization important!)
   allowedHeaders: ["Content-Type", "Authorization"],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 };
 
 app.use(cors(corsOptions));
-
-// Preflight unbedingt mit IDENTISCHEN Optionen beantworten
 app.options("*", cors(corsOptions));
+
+/** ✅ THIS WAS MISSING */
+app.use(express.json({ limit: "5mb" }));
+app.use(express.urlencoded({ extended: true }));
 
 // uploads
 const uploadsDir = path.join(process.cwd(), "uploads");
@@ -66,6 +67,7 @@ app.use("/uploads", express.static(uploadsDir, { maxAge: "7d" }));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+// Wallet auth: nonce
 app.get("/auth/nonce", async (req, res) => {
   const pubkey = String(req.query.pubkey ?? "");
   if (!pubkey) return res.status(400).json({ error: "Missing pubkey" });
@@ -77,6 +79,7 @@ app.get("/auth/nonce", async (req, res) => {
   res.json({ nonce, message });
 });
 
+// Wallet auth: verify + gating
 app.post("/auth/verify", async (req, res) => {
   const { pubkey, signature, message } = req.body ?? {};
   if (!pubkey || !signature || !message) {
@@ -103,7 +106,7 @@ app.post("/auth/verify", async (req, res) => {
 // public gated
 app.use("/products", productsRouter);
 
-// ✅ Admin categories (muss vor /admin sein)
+// Admin categories (before /admin)
 app.use("/admin/categories", categoriesRouter);
 
 // admin
