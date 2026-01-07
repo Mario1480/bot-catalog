@@ -226,9 +226,6 @@ export default function AdminDashboardPage() {
                 ) : (
                   <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>Loading price…</div>
                 )}
-
-                // optional: Refresh button irgendwo im Card-Header
-                // <button onClick={loadGatePreview}>Refresh</button>
               </div>
 
               {/* Categories */}
