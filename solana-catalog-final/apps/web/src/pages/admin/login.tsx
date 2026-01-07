@@ -14,7 +14,7 @@ export default function AdminLogin() {
         body: JSON.stringify({ email, password })
       });
       localStorage.setItem("admin_jwt", out.token);
-      window.location.href = "/admin/gate";
+      window.location.href = "/admin";
     } catch (e: any) {
       setErr(e.message || "Login failed");
     }
