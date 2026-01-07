@@ -5,6 +5,8 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import { getGateConfig } from "../gate/gate.js";
+import { getUsdPriceFromCoinGecko } from "../gate/coingecko.js";
 
 import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
@@ -149,6 +151,76 @@ adminRouter.put("/gate-config", requireAdmin, async (req, res) => {
 
   const rows = await query<any>(`SELECT * FROM gate_config LIMIT 1`);
   res.json(rows[0]);
+});
+
+// GET /admin/gate-preview
+// Returns: enabled/mode + current price + required tokens (derived)
+adminRouter.get("/gate-preview", requireAdmin, async (_req, res) => {
+  const cfg = await getGateConfig();
+  if (!cfg) return res.status(500).json({ error: "gate_config not initialized" });
+
+  const enabled = !!cfg.enabled;
+  const mode =
+    cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none";
+
+  let priceUsd: number | null = null;
+  let requiredTokens: number | null = null;
+  let requiredUsd: number | null = null;
+
+  // Helper to fetch price if possible (same logic as gating)
+  async function fetchPrice(): Promise<number> {
+    return await getUsdPriceFromCoinGecko({
+      mode: cfg.coingecko_mode,
+      coinId: cfg.coingecko_coin_id,
+      platform: cfg.coingecko_platform || "solana",
+      tokenAddress: (cfg.coingecko_token_address || cfg.mint_address || "").trim(),
+    });
+  }
+
+  try {
+    // For USD gating we MUST have a price
+    if (mode === "usd") {
+      priceUsd = await fetchPrice();
+
+      requiredUsd = Number(cfg.min_usd);
+      if (Number.isFinite(requiredUsd) && priceUsd > 0) {
+        requiredTokens = requiredUsd / priceUsd;
+      }
+    }
+
+    // For amount gating: price is optional (only for display)
+    if (mode === "amount") {
+      requiredTokens = Number(cfg.min_amount);
+      if (!Number.isFinite(requiredTokens)) requiredTokens = null;
+
+      // Try to fetch price to show ~$ value, but don't fail endpoint if it errors
+      try {
+        priceUsd = await fetchPrice();
+        if (priceUsd > 0 && requiredTokens !== null) {
+          requiredUsd = requiredTokens * priceUsd;
+        }
+      } catch {
+        // ignore price errors in amount-mode
+      }
+    }
+  } catch (e: any) {
+    // In USD mode, price is essential -> return error clearly
+    if (mode === "usd") {
+      return res.status(500).json({ error: e?.message || "Failed to fetch price" });
+    }
+  }
+
+  res.json({
+    enabled,
+    mode,
+    mint_address: cfg.mint_address || "",
+    min_amount: cfg.min_amount !== null ? Number(cfg.min_amount) : null,
+    min_usd: cfg.min_usd !== null ? Number(cfg.min_usd) : null,
+    tolerance_percent: Number(cfg.tolerance_percent ?? 2),
+    priceUsd,
+    requiredUsd,
+    requiredTokens,
+  });
 });
 
 /* ------------------ UPLOADS ------------------ */
