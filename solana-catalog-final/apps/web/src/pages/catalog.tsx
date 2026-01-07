@@ -351,7 +351,7 @@ export default function CatalogPage() {
                         }}
                       >
                         {img ? (
-                          <img src={img} alt={title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          <img src={img} alt={title} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         ) : (
                           <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
                         )}
@@ -404,7 +404,7 @@ export default function CatalogPage() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              padding: 16,
+              padding: 12,
             }}
           >
             <div
@@ -414,7 +414,8 @@ export default function CatalogPage() {
                 width: "min(980px, 100%)",
                 maxHeight: "90vh",
                 overflow: "auto",
-                padding: 18,
+                padding: 16,
+                margin: "0 auto",
               }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -427,12 +428,18 @@ export default function CatalogPage() {
                   <img
                     src={img}
                     alt={title}
+                    loading="lazy"
+                    decoding="async"
                     style={{
                       width: "100%",
+                      maxWidth: 500,
+                      maxHeight: 500,
                       aspectRatio: "1 / 1",
                       objectFit: "cover",
                       borderRadius: 12,
                       border: "1px solid var(--border)",
+                      marginInline: "auto",
+                      display: "block",
                     }}
                   />
                 </div>
@@ -451,7 +458,7 @@ export default function CatalogPage() {
                   <div className="card" style={{ padding: 12 }}>
                     <div style={{ display: "grid", gap: 10 }}>
                       {extra.map(([k, v]) => (
-                        <div key={k} style={{ display: "grid", gridTemplateColumns: "180px 1fr", gap: 12, alignItems: "start" }}>
+                        <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 180px) 1fr", gap: 12, alignItems: "start" }}>
                           <div style={{ color: "var(--muted)", fontSize: 13 }}>{k}</div>
                           <div style={{ fontSize: 13, wordBreak: "break-word" }}>{String(v)}</div>
                         </div>
