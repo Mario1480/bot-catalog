@@ -24,7 +24,7 @@ productsRouter.get("/filters", requireUser, async (_req, res) => {
 productsRouter.get("/", requireUser, async (req, res) => {
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
 
-  // erwartet: ?filters[key]=value
+  // Expect filters as ?filters[key]=value
   const rawFilters = (req.query.filters ?? {}) as any;
   const filters: Record<string, string> = {};
 

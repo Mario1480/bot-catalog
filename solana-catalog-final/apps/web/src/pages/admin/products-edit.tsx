@@ -1,9 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { apiFetch, apiBase } from "../../lib/api";
-import { AdminLayout } from "../../components/admin/AdminLayout";
+import { apiBase, apiFetch } from "../../lib/api";
 
-const CATEGORY_OPTIONS = ["Bots", "Signals", "Indicators", "Education", "Tools", "Other"];
+const CATEGORY_OPTIONS = ["Bots", "Signals", "Indicators", "Education", "Tools", "Other"] as const;
 
 type KV = { key: string; value: string };
 
@@ -13,8 +11,16 @@ function qp(name: string): string {
   return u.searchParams.get(name) || "";
 }
 
-function uniq(arr: string[]) {
-  return Array.from(new Set(arr.map((x) => x.trim()).filter(Boolean)));
+function normalizeTags(input: string): string[] {
+  return input
+    .split("|")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function normalizeUrl(input: string): string {
+  const v = (input || "").trim();
+  return v;
 }
 
 export default function ProductEditor() {
@@ -33,16 +39,24 @@ export default function ProductEditor() {
   const [fields, setFields] = useState<KV[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
-  const token = typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
+
   const API = apiBase();
 
-  /* ------------------ Load ID ------------------ */
+  // ---- redirect if no admin token
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!token) window.location.href = "/admin/login";
+  }, [token]);
+
+  // ---- load id from query
   useEffect(() => {
     const existingId = qp("id");
     if (existingId) setId(existingId);
   }, []);
 
-  /* ------------------ Load Product ------------------ */
+  // ---- load product
   useEffect(() => {
     if (!id) return;
 
@@ -52,24 +66,24 @@ export default function ProductEditor() {
       try {
         const out = await apiFetch(`/admin/products/${id}`, { method: "GET" }, token);
 
-        setTitle(out.title || "");
-        setDescription(out.description || "");
-        setImageUrl(out.image_url || "");
-        setTargetUrl(out.target_url || "");
-        setStatus((out.status || "published") === "draft" ? "draft" : "published");
-        setTags(Array.isArray(out.tags) ? out.tags : []);
+        setTitle(out?.title || "");
+        setDescription(out?.description || "");
+        setImageUrl(out?.image_url || "");
+        setTargetUrl(out?.target_url || "");
+        setStatus((out?.status || "published") === "draft" ? "draft" : "published");
+        setTags(Array.isArray(out?.tags) ? out.tags : []);
 
-        const rawFields = Array.isArray(out.fields) ? out.fields : [];
+        const rawFields = Array.isArray(out?.fields) ? out.fields : [];
         const all: KV[] = rawFields.map((f: any) => ({
-          key: String(f.key || "").trim(),
-          value: String(f.value || "").trim(),
+          key: String(f?.key || ""),
+          value: String(f?.value || ""),
         }));
 
-        // categories aus fields ziehen (mehrfach erlaubt)
+        // Categories come from fields where key === "category" (multiple allowed)
         const cats = all.filter((f) => f.key === "category").map((f) => f.value);
-        setCategories(uniq(cats));
+        setCategories(Array.from(new Set(cats.filter(Boolean))));
 
-        // category NICHT doppelt in freien fields
+        // Remove category from free fields list to avoid duplicates
         setFields(all.filter((f) => f.key !== "category"));
       } catch (e: any) {
         setErr(e?.message || "Load failed");
@@ -79,13 +93,13 @@ export default function ProductEditor() {
     })();
   }, [id, token]);
 
-  /* ------------------ Image Preview ------------------ */
+  // ---- image preview
   const imgPreview = useMemo(() => {
-    if (!imageUrl) return "";
-    if (imageUrl.startsWith("http://") || imageUrl.startsWith("https://")) return imageUrl;
-    if (imageUrl.startsWith("/uploads/")) return `${API}${imageUrl}`;
-    if (imageUrl.startsWith("/")) return `${API}${imageUrl}`;
-    return `${API}/uploads/${imageUrl}`;
+    const v = (imageUrl || "").trim();
+    if (!v) return "";
+    if (v.startsWith("http://") || v.startsWith("https://")) return v;
+    if (v.startsWith("/uploads/")) return `${API}${v}`;
+    return `${API}/uploads/${v}`;
   }, [imageUrl, API]);
 
   async function uploadImage(file: File) {
@@ -99,42 +113,62 @@ export default function ProductEditor() {
       body: form,
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || "Upload failed");
 
-    setImageUrl(data.publicUrl);
+    // API returns: { publicUrl: "/uploads/xxx.png" } (expected)
+    setImageUrl(String(data?.publicUrl || ""));
   }
 
-  /* ------------------ Save ------------------ */
+  function setField(i: number, key: string, value: string) {
+    setFields((prev) => {
+      const next = [...prev];
+      next[i] = { key, value };
+      return next;
+    });
+  }
+
   async function save() {
     setSaving(true);
     setErr("");
-
     try {
-      const cleanFields = fields
+      const cleanedFields = fields
         .map((f) => ({ key: (f.key || "").trim(), value: (f.value || "").trim() }))
-        .filter((f) => f.key && f.value);
+        .filter((f) => f.key && f.value)
+        .filter((f) => f.key !== "category"); // avoid duplication
 
-      const cleanCats = uniq(categories);
+      const cleanedCategories = Array.from(
+        new Set(categories.map((c) => (c || "").trim()).filter(Boolean))
+      );
 
       const payload = {
-        title: title.trim(),
-        description: description || "",
-        image_url: imageUrl || "",
-        target_url: targetUrl.trim(),
+        title: (title || "").trim(),
+        description: (description || "").trim(),
+        image_url: (imageUrl || "").trim(),
+        target_url: normalizeUrl(targetUrl),
         status,
-        tags: uniq(tags),
+        tags: Array.from(new Set(tags.map((t) => (t || "").trim()).filter(Boolean))),
         fields: [
-          ...cleanFields,
-          ...cleanCats.map((c) => ({ key: "category", value: c })),
+          ...cleanedFields,
+          ...cleanedCategories.map((c) => ({ key: "category", value: c })),
         ],
       };
 
       if (!id) {
-        const out = await apiFetch("/admin/products", { method: "POST", body: JSON.stringify(payload) }, token);
-        window.location.href = `/admin/products-edit?id=${out.id}`;
+        const out = await apiFetch(
+          "/admin/products",
+          { method: "POST", body: JSON.stringify(payload) },
+          token
+        );
+        const newId = out?.id;
+        if (!newId) throw new Error("Create succeeded but no id returned");
+        window.location.href = `/admin/products-edit?id=${newId}`;
       } else {
-        await apiFetch(`/admin/products/${id}`, { method: "PUT", body: JSON.stringify(payload) }, token);
+        await apiFetch(
+          `/admin/products/${id}`,
+          { method: "PUT", body: JSON.stringify(payload) },
+          token
+        );
         alert("Saved");
       }
     } catch (e: any) {
@@ -152,6 +186,7 @@ export default function ProductEditor() {
     setSaving(true);
     try {
       await apiFetch(`/admin/products/${id}`, { method: "DELETE" }, token);
+      alert("Deleted");
       window.location.href = "/admin/products";
     } catch (e: any) {
       setErr(e?.message || "Delete failed");
@@ -160,159 +195,129 @@ export default function ProductEditor() {
     }
   }
 
-  function setField(i: number, next: KV) {
-    setFields((prev) => {
-      const copy = [...prev];
-      copy[i] = next;
-      return copy;
-    });
-  }
+  const tagsString = useMemo(() => tags.join("|"), [tags]);
 
   return (
-    <AdminLayout title={id ? "Edit Product" : "Create Product"}>
-      {/* Top actions */}
-      <div className="card" style={{ padding: 16, marginBottom: 16, display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <Link className="btn" href="/admin/products">
-            ← Back
-          </Link>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>
-            {id ? "Edit Product" : "Create Product"}
-          </div>
-          {loading ? <span style={{ color: "var(--muted)" }}>Loading…</span> : null}
-        </div>
+    <div style={{ maxWidth: 980, margin: "40px auto", padding: 16, fontFamily: "system-ui" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <h1 style={{ margin: 0 }}>{id ? "Edit Product" : "Create Product"}</h1>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button
+            onClick={() => (window.location.href = "/admin/products")}
+            style={{ padding: "10px 14px" }}
+            disabled={saving}
+          >
+            Back
+          </button>
+
           {id ? (
-            <button className="btn" onClick={del} disabled={saving} style={{ borderColor: "rgba(255,80,80,.35)" }}>
+            <button
+              onClick={del}
+              style={{ padding: "10px 14px", background: "#fee", border: "1px solid #f99" }}
+              disabled={saving}
+            >
               Delete
             </button>
           ) : null}
 
-          <button className="btn btnPrimary" onClick={save} disabled={saving || loading}>
+          <button disabled={saving} onClick={save} style={{ padding: "10px 14px" }}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
 
-      {/* Error */}
-      {err && (
-        <div
-          className="card"
-          style={{
-            padding: 14,
-            marginBottom: 14,
-            borderColor: "rgba(255,80,80,.35)",
-            background: "rgba(255,80,80,.08)",
-          }}
-        >
-          <div style={{ fontWeight: 900 }}>Error</div>
-          <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
-        </div>
-      )}
+      {loading ? <p style={{ opacity: 0.7 }}>Loading…</p> : null}
+      {err ? <p style={{ color: "crimson" }}>{err}</p> : null}
 
-      {/* Form */}
-      <div style={{ display: "grid", gap: 14 }}>
-        {/* Basics */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Basics</div>
+      <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 700 }}>Title</div>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} style={{ padding: 10 }} />
+        </label>
 
-          <div style={{ display: "grid", gap: 10 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "var(--muted)", fontSize: 12 }}>Title</span>
-              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "var(--muted)", fontSize: 12 }}>Target URL</span>
-              <input className="input" value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} />
-            </label>
-
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ color: "var(--muted)", fontSize: 12 }}>Status</span>
-              <select className="input" value={status} onChange={(e) => setStatus(e.target.value as any)}>
-                <option value="published">published</option>
-                <option value="draft">draft</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        {/* Description */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Description (Details page)</div>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 700 }}>Description (Details page)</div>
           <textarea
-            className="input"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            style={{ minHeight: 120, resize: "vertical" }}
-            placeholder="Shown in the Details modal/page"
+            style={{ padding: 10, minHeight: 120 }}
           />
-        </div>
+        </label>
 
-        {/* Image */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Image</div>
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 700 }}>Target URL</div>
+          <input value={targetUrl} onChange={(e) => setTargetUrl(e.target.value)} style={{ padding: 10 }} />
+        </label>
 
+        <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ fontWeight: 700 }}>Status</div>
+          <select value={status} onChange={(e) => setStatus(e.target.value as any)} style={{ padding: 10 }}>
+            <option value="published">published</option>
+            <option value="draft">draft</option>
+          </select>
+        </label>
+
+        {/* IMAGE */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 800 }}>Image</div>
           {imgPreview ? (
             <img
               src={imgPreview}
               alt="preview"
-              style={{
-                width: "100%",
-                maxWidth: 520,
-                borderRadius: 12,
-                border: "1px solid var(--border)",
-                marginBottom: 10,
+              style={{ maxWidth: 360, width: "100%", marginTop: 10, borderRadius: 10 }}
+            />
+          ) : null}
+
+          <div style={{ marginTop: 10 }}>
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) uploadImage(f).catch((x) => setErr(String(x?.message || x)));
               }}
             />
-          ) : (
-            <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>No image yet</div>
-          )}
+          </div>
 
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (!f) return;
-              uploadImage(f).catch((x) => setErr(String(x?.message || x)));
-            }}
-          />
-
-          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+          <div style={{ marginTop: 8, opacity: 0.75 }}>
             Stored as: <code>{imageUrl || "(none)"}</code>
           </div>
         </div>
 
-        {/* Tags */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Tags</div>
+        {/* TAGS */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 800 }}>Tags</div>
           <input
-            className="input"
-            value={tags.join("|")}
-            onChange={(e) => setTags(e.target.value.split("|").map((x) => x.trim()).filter(Boolean))}
+            value={tagsString}
+            onChange={(e) => setTags(normalizeTags(e.target.value))}
             placeholder="tag1|tag2|tag3"
+            style={{ width: "100%", padding: 10, marginTop: 8 }}
           />
-          <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 12 }}>
-            Use <code>|</code> to separate tags.
-          </div>
         </div>
 
-        {/* Categories */}
-        <div className="card" style={{ padding: 16 }}>
-          <div style={{ fontWeight: 900, marginBottom: 10 }}>Categories</div>
-          <div style={{ display: "grid", gap: 10 }}>
+        {/* CATEGORIES */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
+          <div style={{ fontWeight: 800, marginBottom: 8 }}>Categories (multiple)</div>
+          <div style={{ display: "grid", gap: 8 }}>
             {CATEGORY_OPTIONS.map((c) => {
               const checked = categories.includes(c);
               return (
-                <label key={c} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <label key={c} style={{ display: "flex", gap: 10, alignItems: "center" }}>
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={(e) => {
                       setCategories((prev) => {
-                        if (e.target.checked) return uniq([...prev, c]);
+                        if (e.target.checked) return Array.from(new Set([...prev, c]));
                         return prev.filter((x) => x !== c);
                       });
                     }}
@@ -322,60 +327,48 @@ export default function ProductEditor() {
               );
             })}
           </div>
-
-          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
-            Saved as multiple <code>fields</code> rows: <code>key=category</code>.
-          </div>
         </div>
 
-        {/* Fields */}
-        <div className="card" style={{ padding: 16 }}>
+        {/* FIELDS */}
+        <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-            <div style={{ fontWeight: 900 }}>Fields (key/value)</div>
-            <button className="btn" onClick={() => setFields((p) => [...p, { key: "", value: "" }])}>
-              + Add field
+            <div style={{ fontWeight: 800 }}>Fields (key/value)</div>
+            <button
+              onClick={() => setFields((p) => [...p, { key: "", value: "" }])}
+              style={{ padding: "8px 12px" }}
+              disabled={saving}
+            >
+              + Add
             </button>
           </div>
 
-          {fields.length === 0 ? (
-            <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>No custom fields yet.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 10, marginTop: 12 }}>
-              {fields.map((f, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr auto",
-                    gap: 10,
-                    alignItems: "center",
-                  }}
-                >
-                  <input
-                    className="input"
-                    value={f.key}
-                    placeholder="Key"
-                    onChange={(e) => setField(i, { key: e.target.value, value: f.value })}
-                  />
-                  <input
-                    className="input"
-                    value={f.value}
-                    placeholder="Value"
-                    onChange={(e) => setField(i, { key: f.key, value: e.target.value })}
-                  />
-                  <button className="btn" onClick={() => setFields((prev) => prev.filter((_, idx) => idx !== i))}>
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          {fields.length === 0 ? <div style={{ marginTop: 10, opacity: 0.7 }}>No fields yet.</div> : null}
 
-          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
-            Note: Do not use <code>category</code> here — categories are managed above.
-          </div>
+          {fields.map((f, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8, marginTop: 10 }}>
+              <input
+                value={f.key}
+                placeholder="key"
+                onChange={(e) => setField(i, e.target.value, f.value)}
+                style={{ padding: 10 }}
+              />
+              <input
+                value={f.value}
+                placeholder="value"
+                onChange={(e) => setField(i, f.key, e.target.value)}
+                style={{ padding: 10 }}
+              />
+              <button
+                onClick={() => setFields((p) => p.filter((_, idx) => idx !== i))}
+                style={{ padding: "8px 12px" }}
+                disabled={saving}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
         </div>
       </div>
-    </AdminLayout>
+    </div>
   );
 }

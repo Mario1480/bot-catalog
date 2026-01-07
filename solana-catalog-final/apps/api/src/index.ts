@@ -9,8 +9,10 @@ import { makeNonce, upsertNonce, consumeNonce } from "./auth/nonce.js";
 import { verifySignature } from "./auth/verify.js";
 import { decideGate } from "./gate/gate.js";
 import { signUserJwt } from "./auth/jwt.js";
+
 import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
+import { categoriesRouter } from "./categories/categories.routes.js"; // ✅ NEW
 
 const app = express();
 
@@ -75,7 +77,9 @@ app.get("/auth/nonce", async (req, res) => {
 // Wallet auth: verify + gating
 app.post("/auth/verify", async (req, res) => {
   const { pubkey, signature, message } = req.body ?? {};
-  if (!pubkey || !signature || !message) return res.status(400).json({ error: "Missing fields" });
+  if (!pubkey || !signature || !message) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
 
   const nonce = await consumeNonce(String(pubkey));
   if (!nonce) return res.status(401).json({ error: "Nonce expired or not found" });
@@ -96,6 +100,9 @@ app.post("/auth/verify", async (req, res) => {
 
 // Gated catalog endpoints
 app.use("/products", productsRouter);
+
+// ✅ Admin: Categories endpoints (MUST be before /admin router)
+app.use("/admin/categories", categoriesRouter);
 
 // Admin endpoints
 app.use("/admin", adminRouter);
