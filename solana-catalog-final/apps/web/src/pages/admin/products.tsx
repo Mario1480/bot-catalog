@@ -81,12 +81,33 @@ export default function AdminProductsList() {
                     {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
                   </td>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)", textAlign: "right" }}>
-                    <button
-                      className="btn"
-                      onClick={() => (window.location.href = `/admin/products-edit?id=${p.id}`)}
-                    >
-                      Edit
-                    </button>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                      <button
+                        className="btn"
+                        onClick={() => (window.location.href = `/admin/products-edit?id=${p.id}`)}
+                      >
+                        Edit
+                      </button>
+
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          if (!confirm(`Delete product "${p.title}"?`)) return;
+                          try {
+                            await apiFetch(`/admin/products/${p.id}`, { method: "DELETE" }, token);
+                            await load();
+                          } catch (e: any) {
+                            setErr(e?.message || "Delete failed");
+                          }
+                        }}
+                        style={{
+                          borderColor: "rgba(255,80,80,.35)",
+                          background: "rgba(255,80,80,.08)",
+                        }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
