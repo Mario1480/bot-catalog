@@ -24,6 +24,8 @@ export function WalletConnect() {
   const lastAttemptAtRef = useRef<number>(0);
   const attemptCountRef = useRef<number>(0);
 
+  const [err, setErr] = useState<string>("");
+
   function readStoredAuth() {
     try {
       return {
@@ -35,9 +37,7 @@ export function WalletConnect() {
     }
   }
 
-  const [err, setErr] = useState<string>("");
-
-  // Clear JWT immediately on disconnect
+  // Handle disconnect: clear auth but DO NOT redirect
   const prevConnectedRef = useRef<boolean>(false);
   useEffect(() => {
     const prev = prevConnectedRef.current;
@@ -48,21 +48,21 @@ export function WalletConnect() {
         localStorage.removeItem("user_jwt");
         localStorage.removeItem("user_pubkey");
       } catch {}
+      lastPubkeyRef.current = "";
       notifyJwtChanged();
       setErr("");
-      lastPubkeyRef.current = "";
     }
   }, [connected]);
 
-  // Sign-in flow: when connected and no valid user_jwt for this wallet, request nonce -> sign -> verify
+  // Sign-in flow
   useEffect(() => {
     if (!connected) return;
     if (!publicKey) return;
 
     const pk = publicKey.toBase58();
-
-    // If we already have a jwt for THIS pubkey, don't prompt again
     const stored = readStoredAuth();
+
+    // Already authenticated for this wallet → nothing to do
     if (stored.jwt && stored.pk === pk) {
       lastPubkeyRef.current = pk;
       setErr("");
@@ -70,17 +70,15 @@ export function WalletConnect() {
       return;
     }
 
-    // If wallet can't sign messages, we can't authenticate
     if (!signMessage) {
       setErr("Wallet cannot sign messages.");
       return;
     }
 
-    // prevent rapid re-attempt loops
     const now = Date.now();
     if (now - lastAttemptAtRef.current < 3000) return;
-
     if (signingRef.current) return;
+
     signingRef.current = true;
     lastAttemptAtRef.current = now;
 
@@ -93,16 +91,12 @@ export function WalletConnect() {
 
         // 1) nonce
         const nonceRes = await fetch(`${API}/auth/nonce?pubkey=${encodeURIComponent(pk)}`, {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
+          headers: { Accept: "application/json" },
           signal: ac.signal,
         });
 
         const nonceJson = await nonceRes.json().catch(() => ({}));
-        if (!nonceRes.ok) throw new Error(nonceJson?.error || `Failed to get nonce (${nonceRes.status})`);
+        if (!nonceRes.ok) throw new Error(nonceJson?.error || "Failed to get nonce");
 
         const message = String(nonceJson?.message || "");
         if (!message) throw new Error("Nonce message missing");
@@ -115,7 +109,6 @@ export function WalletConnect() {
         // 3) verify
         const verifyRes = await fetch(`${API}/auth/verify`, {
           method: "POST",
-          credentials: "include",
           headers: {
             "Content-Type": "application/json",
             Accept: "application/json",
@@ -125,7 +118,7 @@ export function WalletConnect() {
         });
 
         const verifyJson = await verifyRes.json().catch(() => ({}));
-        if (!verifyRes.ok) throw new Error(verifyJson?.error || `Verification failed (${verifyRes.status})`);
+        if (!verifyRes.ok) throw new Error(verifyJson?.error || "Verification failed");
 
         const token = String(verifyJson?.token || "");
         if (!token) throw new Error("Missing token");
@@ -139,7 +132,6 @@ export function WalletConnect() {
         attemptCountRef.current = 0;
         notifyJwtChanged();
       } catch (e: any) {
-        // ignore aborts
         if (e?.name === "AbortError") return;
 
         attemptCountRef.current += 1;
@@ -150,12 +142,8 @@ export function WalletConnect() {
         } catch {}
 
         notifyJwtChanged();
+        setErr(e?.message || "Wallet sign-in failed");
 
-        // If the backend returns 401 due to missing nonce/session, show a helpful hint
-        const msg = e?.message || "Wallet sign-in failed";
-        setErr(msg);
-
-        // Backoff a bit more after multiple failures
         if (attemptCountRef.current >= 3) {
           lastAttemptAtRef.current = Date.now() + 10000;
         }
