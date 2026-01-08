@@ -20,6 +20,21 @@ export function WalletConnect() {
 
   const signingRef = useRef(false);
   const lastPubkeyRef = useRef<string>("");
+
+  const lastAttemptAtRef = useRef<number>(0);
+  const attemptCountRef = useRef<number>(0);
+
+  function readStoredAuth() {
+    try {
+      return {
+        jwt: localStorage.getItem("user_jwt") || "",
+        pk: localStorage.getItem("user_pubkey") || "",
+      };
+    } catch {
+      return { jwt: "", pk: "" };
+    }
+  }
+
   const [err, setErr] = useState<string>("");
 
   // Clear JWT immediately on disconnect
@@ -47,16 +62,11 @@ export function WalletConnect() {
     const pk = publicKey.toBase58();
 
     // If we already have a jwt for THIS pubkey, don't prompt again
-    let existingJwt = "";
-    let existingPk = "";
-    try {
-      existingJwt = localStorage.getItem("user_jwt") || "";
-      existingPk = localStorage.getItem("user_pubkey") || "";
-    } catch {}
-
-    if (existingJwt && existingPk === pk) {
+    const stored = readStoredAuth();
+    if (stored.jwt && stored.pk === pk) {
       lastPubkeyRef.current = pk;
       setErr("");
+      attemptCountRef.current = 0;
       return;
     }
 
@@ -66,8 +76,15 @@ export function WalletConnect() {
       return;
     }
 
+    // prevent rapid re-attempt loops
+    const now = Date.now();
+    if (now - lastAttemptAtRef.current < 3000) return;
+
     if (signingRef.current) return;
     signingRef.current = true;
+    lastAttemptAtRef.current = now;
+
+    const ac = new AbortController();
 
     (async () => {
       try {
@@ -75,9 +92,17 @@ export function WalletConnect() {
         const API = apiBase();
 
         // 1) nonce
-        const nonceRes = await fetch(`${API}/auth/nonce?pubkey=${encodeURIComponent(pk)}`);
+        const nonceRes = await fetch(`${API}/auth/nonce?pubkey=${encodeURIComponent(pk)}`, {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+          },
+          signal: ac.signal,
+        });
+
         const nonceJson = await nonceRes.json().catch(() => ({}));
-        if (!nonceRes.ok) throw new Error(nonceJson?.error || "Failed to get nonce");
+        if (!nonceRes.ok) throw new Error(nonceJson?.error || `Failed to get nonce (${nonceRes.status})`);
 
         const message = String(nonceJson?.message || "");
         if (!message) throw new Error("Nonce message missing");
@@ -90,11 +115,17 @@ export function WalletConnect() {
         // 3) verify
         const verifyRes = await fetch(`${API}/auth/verify`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
           body: JSON.stringify({ pubkey: pk, signature, message }),
+          signal: ac.signal,
         });
+
         const verifyJson = await verifyRes.json().catch(() => ({}));
-        if (!verifyRes.ok) throw new Error(verifyJson?.error || "Verification failed");
+        if (!verifyRes.ok) throw new Error(verifyJson?.error || `Verification failed (${verifyRes.status})`);
 
         const token = String(verifyJson?.token || "");
         if (!token) throw new Error("Missing token");
@@ -105,18 +136,39 @@ export function WalletConnect() {
         } catch {}
 
         lastPubkeyRef.current = pk;
+        attemptCountRef.current = 0;
         notifyJwtChanged();
       } catch (e: any) {
+        // ignore aborts
+        if (e?.name === "AbortError") return;
+
+        attemptCountRef.current += 1;
+
         try {
           localStorage.removeItem("user_jwt");
           localStorage.removeItem("user_pubkey");
         } catch {}
+
         notifyJwtChanged();
-        setErr(e?.message || "Wallet sign-in failed");
+
+        // If the backend returns 401 due to missing nonce/session, show a helpful hint
+        const msg = e?.message || "Wallet sign-in failed";
+        setErr(msg);
+
+        // Backoff a bit more after multiple failures
+        if (attemptCountRef.current >= 3) {
+          lastAttemptAtRef.current = Date.now() + 10000;
+        }
       } finally {
         signingRef.current = false;
       }
     })();
+
+    return () => {
+      try {
+        ac.abort();
+      } catch {}
+    };
   }, [connected, publicKey, signMessage]);
 
   return (
