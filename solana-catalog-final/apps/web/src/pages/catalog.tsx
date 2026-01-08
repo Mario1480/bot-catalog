@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { apiFetch } from "../lib/api";
 
@@ -154,14 +154,22 @@ export default function CatalogPage() {
 
   const [needsAuth, setNeedsAuth] = useState<boolean>(() => !jwt);
 
-  // Listen for token changes (WalletConnect dispatches user_jwt_changed)
-  useEffect(() => {
-    const sync = () => {
-      let t = "";
-      try {
-        t = localStorage.getItem("user_jwt") || "";
-      } catch {}
+  const lastJwtRef = useRef<string>(jwt || "");
 
+  // Listen for token changes (WalletConnect dispatches user_jwt_changed)
+  // plus a lightweight poll as a safety net (some wallet UIs may not dispatch our custom event).
+  useEffect(() => {
+    const readJwt = () => {
+      try {
+        return localStorage.getItem("user_jwt") || "";
+      } catch {
+        return "";
+      }
+    };
+
+    const sync = () => {
+      const t = readJwt();
+      lastJwtRef.current = t;
       setJwt(t);
 
       if (!t) {
@@ -176,9 +184,32 @@ export default function CatalogPage() {
       }
     };
 
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") sync();
+    };
+
+    // initial sync
     sync();
+
+    // primary signal (our custom event)
     window.addEventListener("user_jwt_changed", sync);
-    return () => window.removeEventListener("user_jwt_changed", sync);
+
+    // extra safety nets
+    window.addEventListener("focus", sync);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    // polling safety net (kept small + cheap)
+    const iv = window.setInterval(() => {
+      const t = readJwt();
+      if (t !== lastJwtRef.current) sync();
+    }, 500);
+
+    return () => {
+      window.removeEventListener("user_jwt_changed", sync);
+      window.removeEventListener("focus", sync);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(iv);
+    };
   }, []);
 
   // Load products whenever jwt becomes available
