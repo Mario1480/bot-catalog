@@ -1,10 +1,6 @@
-import dynamic from "next/dynamic";
+import { useEffect } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-
-const WalletMultiButtonDynamic = dynamic(
-  async () => (await import("@solana/wallet-adapter-react-ui")).WalletMultiButton,
-  { ssr: false }
-);
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 function notifyJwtChanged() {
   try {
@@ -13,29 +9,20 @@ function notifyJwtChanged() {
 }
 
 export function WalletConnect() {
-  const { connected, publicKey, disconnect } = useWallet();
+  const wallet = useWallet();
 
-  async function onDisconnect() {
-    try {
-      await disconnect();
-    } finally {
+  // If wallet disconnects (via Phantom dropdown), immediately clear JWT and refresh UI (Catalog hides content)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    if (!wallet.connected) {
       try {
         localStorage.removeItem("user_jwt");
         localStorage.removeItem("user_pubkey");
       } catch {}
       notifyJwtChanged();
     }
-  }
+  }, [wallet.connected]);
 
-  return (
-    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-      <WalletMultiButtonDynamic className="btn btnPrimary" />
-
-      {connected && publicKey ? (
-        <button className="btn" onClick={onDisconnect}>
-          Disconnect
-        </button>
-      ) : null}
-    </div>
-  );
+  return <WalletMultiButton className="btn btnPrimary" />;
 }
