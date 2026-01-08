@@ -52,7 +52,7 @@ export default function HomePage() {
 
       setJwtChecking(true);
       try {
-        // Validate token by calling a gated endpoint.
+        // Validate token by calling a gated endpoint (same-origin JWT only).
         await apiFetch("/products?limit=1", { method: "GET" }, token);
         setJwtOk(true);
       } catch {
@@ -67,12 +67,11 @@ export default function HomePage() {
 
   // Authenticate when wallet connects (nonce -> sign -> verify -> store JWT)
   useEffect(() => {
+    // On disconnect: don't redirect; just update UI state.
     if (!wallet.connected) {
       authInFlightRef.current = false;
       lastAuthedPubkeyRef.current = null;
       setLoading(false);
-      // Do not force-logout / redirect on disconnect.
-      // We only clear in-memory state; stored JWT remains until it expires or is rejected by the API.
       setStatus("Wallet disconnected. You can reconnect to refresh access.");
       return;
     }
@@ -86,8 +85,16 @@ export default function HomePage() {
 
     const pubkey = wallet.publicKey.toBase58();
 
+    // Prevent loops: only auth once per pubkey per page-load unless it failed.
     if (lastAuthedPubkeyRef.current === pubkey) return;
     if (authInFlightRef.current) return;
+
+    // Cooldown per pubkey (avoid rapid retries if something fails)
+    const now = Date.now();
+    const key = `auth_cooldown_${pubkey}`;
+    const last = typeof window !== "undefined" ? Number(sessionStorage.getItem(key) || "0") : 0;
+    if (last && now - last < 5000) return;
+    if (typeof window !== "undefined") sessionStorage.setItem(key, String(now));
 
     (async () => {
       authInFlightRef.current = true;
@@ -96,48 +103,60 @@ export default function HomePage() {
         setLoading(true);
         setStatus("Requesting nonce…");
 
-        const { message } = await apiFetch(`/auth/nonce?pubkey=${pubkey}`, {
+        // IMPORTANT: include credentials so cookie-based flows work too.
+        const nonceRes = await fetch(`${API}/auth/nonce?pubkey=${encodeURIComponent(pubkey)}`, {
           method: "GET",
+          credentials: "include",
         });
+
+        const nonceData: any = await nonceRes.json().catch(() => ({}));
+        if (!nonceRes.ok) {
+          throw new Error(nonceData?.error || `Nonce failed (${nonceRes.status})`);
+        }
+
+        const message = String(nonceData?.message || "");
+        if (!message) throw new Error("Nonce missing message");
 
         setStatus("Signing message…");
         const sig = await wallet.signMessage(new TextEncoder().encode(message));
         const signatureBase58 = bs58.encode(sig);
 
-        setStatus("Verifying token gate…");
-        const out = await apiFetch(
-          `/auth/verify`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              pubkey,
-              signature: signatureBase58,
-              message,
-            }),
+        setStatus("Verifying access…");
+        const verifyRes = await fetch(`${API}/auth/verify`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pubkey, signature: signatureBase58, message }),
+        });
+
+        const verifyData: any = await verifyRes.json().catch(() => ({}));
+        if (!verifyRes.ok) {
+          // If unauthorized -> clear token so user can retry cleanly
+          if (verifyRes.status === 401 || verifyRes.status === 403) {
+            if (typeof window !== "undefined") localStorage.removeItem("user_jwt");
+            setJwtOk(false);
           }
-        );
+          throw new Error(verifyData?.error || `Verify failed (${verifyRes.status})`);
+        }
 
-        localStorage.setItem("user_jwt", out.token);
-        setJwtOk(true);
-        lastAuthedPubkeyRef.current = pubkey;
-
-        setStatus("Access granted. You can open the catalog now.");
+        const token = String(verifyData?.token || "");
+        if (token) {
+          if (typeof window !== "undefined") localStorage.setItem("user_jwt", token);
+          setJwtOk(true);
+          lastAuthedPubkeyRef.current = pubkey;
+          setStatus("Access granted. You can open the catalog now.");
+        } else {
+          throw new Error("Verify missing token");
+        }
       } catch (e: any) {
         lastAuthedPubkeyRef.current = null;
 
         const msg = (e?.message || "Authentication failed").toString();
-        // if unauthorized/invalid -> wipe token so user can retry cleanly
-        if (
-          msg.toLowerCase().includes("unauthorized") ||
-          msg.toLowerCase().includes("invalid token")
-        ) {
-          localStorage.removeItem("user_jwt");
-          setJwtOk(false);
-        }
-
-        // Make token-gate failures clearer for users
         const lower = msg.toLowerCase();
-        if (lower.includes("insufficient") || lower.includes("not enough") || lower.includes("gate")) {
+
+        if (lower.includes("nonce") && (lower.includes("expired") || lower.includes("not found"))) {
+          setStatus("Login session expired. Please disconnect and reconnect your wallet, then try again.");
+        } else if (lower.includes("insufficient") || lower.includes("not enough") || lower.includes("gate")) {
           setStatus(
             "Access denied by token gate. This wallet doesn't meet the requirement yet. Top up the required tokens, then disconnect + reconnect and try again."
           );
@@ -149,7 +168,7 @@ export default function HomePage() {
         setLoading(false);
       }
     })();
-  }, [wallet.connected, wallet.publicKey, wallet.signMessage]);
+  }, [API, wallet.connected, wallet.publicKey, wallet.signMessage]);
 
   return (
     <>
@@ -254,7 +273,7 @@ export default function HomePage() {
             return (
               <>
                 <button className="btn btnPrimary" disabled>
-                  {jwtChecking ? "Checking…" : "Open Catalog"}
+                  {jwtChecking ? "Checking…" : "No Access"}
                 </button>
                 <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.9 }}>
                   {jwtChecking ? "Validating access…" : "Connect your wallet to unlock."}
