@@ -25,6 +25,8 @@ export default function HomePage() {
 
   const [status, setStatus] = useState<string>("Connect your wallet to unlock the catalog.");
   const [loading, setLoading] = useState(false);
+  const [jwtOk, setJwtOk] = useState(false);
+  const [jwtChecking, setJwtChecking] = useState(false);
 
   // Prevent repeated auth loops
   const authInFlightRef = useRef(false);
@@ -39,23 +41,28 @@ export default function HomePage() {
       .catch(() => setGateErr("Failed to load token gate status"));
   }, [API]);
 
-  // If JWT exists, validate it first. Only then redirect to /catalog.
+  // If JWT exists, validate it (but do NOT auto-redirect; user should click).
   useEffect(() => {
     (async () => {
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") || "" : "";
+      if (!token) {
+        setJwtOk(false);
+        return;
+      }
 
-      if (!token) return;
-
+      setJwtChecking(true);
       try {
-        // If this succeeds, token is valid
-        await apiFetch("/products", { method: "GET" }, token);
-        window.location.href = "/catalog";
+        // Validate token by calling a gated endpoint.
+        await apiFetch("/products?limit=1", { method: "GET" }, token);
+        setJwtOk(true);
       } catch {
-        // Token invalid/expired → remove it and stay on home
         localStorage.removeItem("user_jwt");
+        setJwtOk(false);
+      } finally {
+        setJwtChecking(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Authenticate when wallet connects (nonce -> sign -> verify -> store JWT)
@@ -64,6 +71,7 @@ export default function HomePage() {
       authInFlightRef.current = false;
       lastAuthedPubkeyRef.current = null;
       setLoading(false);
+      setJwtOk(false);
       setStatus("Connect your wallet to unlock the catalog.");
       return;
     }
@@ -109,6 +117,7 @@ export default function HomePage() {
         );
 
         localStorage.setItem("user_jwt", out.token);
+        setJwtOk(true);
         lastAuthedPubkeyRef.current = pubkey;
 
         setStatus("Access granted. Redirecting…");
@@ -123,6 +132,7 @@ export default function HomePage() {
           msg.toLowerCase().includes("invalid token")
         ) {
           localStorage.removeItem("user_jwt");
+          setJwtOk(false);
         }
 
         // Make token-gate failures clearer for users
@@ -220,7 +230,6 @@ export default function HomePage() {
         {/* CTA */}
         <div style={{ marginTop: 30, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           {(() => {
-            const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") || "" : "";
             const gateEnabled = !!gate?.enabled;
 
             // If gating is OFF, allow direct access.
@@ -232,8 +241,8 @@ export default function HomePage() {
               );
             }
 
-            // If gating is ON, only allow entering catalog when a JWT exists.
-            if (token) {
+            // If gating is ON, only allow entering catalog when we confirmed the JWT is valid.
+            if (jwtOk) {
               return (
                 <Link href="/catalog" className="btn btnPrimary">
                   Open Catalog
@@ -245,10 +254,10 @@ export default function HomePage() {
             return (
               <>
                 <button className="btn btnPrimary" disabled>
-                  Open Catalog
+                  {jwtChecking ? "Checking…" : "Open Catalog"}
                 </button>
                 <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.9 }}>
-                  Connect your wallet above to unlock.
+                  {jwtChecking ? "Validating access…" : "Connect your wallet above to unlock."}
                 </span>
               </>
             );
