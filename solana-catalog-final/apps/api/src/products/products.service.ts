@@ -76,6 +76,18 @@ export async function listProducts({
 
   // filters -> key/value exact match in product_fields
   for (const [k, v] of Object.entries(f)) {
+    if (k === "tag" || k === "tags") {
+      params.push(v);
+      where.push(`
+        EXISTS (
+          SELECT 1 FROM product_tags pt
+          WHERE pt.product_id = p.id
+            AND pt.tag = $${params.length}
+        )
+      `);
+      continue;
+    }
+
     params.push(k);
     params.push(v);
     where.push(`
