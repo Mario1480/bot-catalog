@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiBase } from "../lib/api";
-import { AppLayout } from "../components/AppLayout";
 import { AppHeader } from "../components/AppHeader";
 
 type GatePreview = {
@@ -27,9 +26,9 @@ export default function HomePage() {
   }, [API]);
 
   return (
-    <AppLayout>
+    <>
       <AppHeader />
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+      <main style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
       <h1 style={{ fontSize: 32, fontWeight: 900 }}>uTrade Bot Catalog</h1>
 
       {/* Token gate info */}
@@ -107,7 +106,7 @@ export default function HomePage() {
           Open Catalog
         </Link>
       </div>
-    </main>
-    </AppLayout>
+      </main>
+    </>
   );
 }
