@@ -18,6 +18,24 @@ function toBase64(u8: Uint8Array) {
   return btoa(s);
 }
 
+function ssGet(key: string) {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+function ssSet(key: string, val: string) {
+  try {
+    if (typeof window !== "undefined") window.sessionStorage.setItem(key, val);
+  } catch {}
+}
+function ssRemove(key: string) {
+  try {
+    if (typeof window !== "undefined") window.sessionStorage.removeItem(key);
+  } catch {}
+}
+
 export function WalletConnect() {
   const wallet = useWallet();
 
@@ -37,6 +55,10 @@ export function WalletConnect() {
   const inflightRef = useRef<boolean>(false);
   const lastLoginForPubkeyRef = useRef<string>("");
 
+  const LOCK_TTL_MS = 120_000;
+  const lockKey = (pk: string) => `wallet_login_lock:${pk}`;
+  const doneKey = (pk: string) => `wallet_login_done:${pk}`;
+
   // Clear JWT only on a real disconnect transition (connected -> disconnected)
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -50,6 +72,20 @@ export function WalletConnect() {
         localStorage.removeItem("user_jwt");
         localStorage.removeItem("user_pubkey");
       } catch {}
+
+      const pk = (() => {
+        try {
+          return localStorage.getItem("user_pubkey") || "";
+        } catch {
+          return "";
+        }
+      })();
+
+      if (pk) {
+        ssRemove(lockKey(pk));
+        ssRemove(doneKey(pk));
+      }
+
       lastLoginForPubkeyRef.current = "";
       setLastErr("");
       notifyJwtChanged();
@@ -64,6 +100,26 @@ export function WalletConnect() {
     const canSign = typeof wallet.signMessage === "function";
 
     if (!connected || !pubkey || !canSign) return;
+
+    // Cross-instance / remount lock: prevents multiple nonce requests that would overwrite the server nonce.
+    const nowMs = Date.now();
+    const lk = lockKey(pubkey);
+    const dk = doneKey(pubkey);
+
+    // If we already completed login for this pubkey in this session, do nothing.
+    if (ssGet(dk) === "1") {
+      lastLoginForPubkeyRef.current = pubkey;
+      return;
+    }
+
+    const lockVal = ssGet(lk);
+    if (lockVal) {
+      const ts = Number(lockVal);
+      if (Number.isFinite(ts) && nowMs - ts < LOCK_TTL_MS) {
+        // Another instance is already doing login; avoid double-sign and nonce overwrite.
+        return;
+      }
+    }
 
     // If we already attempted login for this pubkey during this connection, don't re-run.
     if (lastLoginForPubkeyRef.current === pubkey) return;
@@ -106,8 +162,9 @@ export function WalletConnect() {
       return;
     }
 
-    // Avoid parallel/double runs
+    // Avoid parallel/double runs (per-instance) + set cross-instance lock
     if (inflightRef.current) return;
+    ssSet(lockKey(pubkey), String(Date.now()));
     inflightRef.current = true;
     lastLoginForPubkeyRef.current = pubkey;
 
@@ -140,6 +197,7 @@ export function WalletConnect() {
             pubkey,
             signature: toBase64(sig),
             message,
+            nonce: nonceJson?.nonce,
           }),
         });
 
@@ -160,11 +218,16 @@ export function WalletConnect() {
           localStorage.setItem("user_pubkey", pubkey);
         } catch {}
 
+        ssSet(doneKey(pubkey), "1");
+        ssRemove(lockKey(pubkey));
+
         setLastErr("");
         notifyJwtChanged();
       } catch (e: any) {
         const msg = String(e?.message || "Wallet login failed");
         setLastErr(msg);
+
+        ssRemove(lockKey(pubkey));
 
         // IMPORTANT: only clear jwt if there isn't one already (prevents wiping a token due to a second effect)
         try {
@@ -174,9 +237,6 @@ export function WalletConnect() {
         } catch {}
 
         notifyJwtChanged();
-
-        // allow a manual retry by re-connecting (or refresh) without looping sign prompts
-        lastLoginForPubkeyRef.current = pubkey;
       } finally {
         inflightRef.current = false;
         setBusy(false);
@@ -184,7 +244,7 @@ export function WalletConnect() {
     })();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet.connected, pubkey]);
+  }, [wallet.connected, pubkey, wallet.signMessage]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
