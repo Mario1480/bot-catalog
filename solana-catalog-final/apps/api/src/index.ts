@@ -13,7 +13,6 @@ import { signUserJwt } from "./auth/jwt.js";
 
 import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
-import { categoriesRouter } from "./categories/categories.routes.js";
 
 const app = express();
 
@@ -69,7 +68,7 @@ app.use("/uploads", express.static(uploadsDir, { maxAge: "7d" }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 // Public gate preview (used by homepage to show token price + required amount)
-app.get("/gate/preview", async (_req, res) => {
+async function handleGatePreview(_req: express.Request, res: express.Response) {
   try {
     const cfg = await getGateConfig();
     if (!cfg) return res.status(500).json({ error: "gate_config not initialized" });
@@ -93,19 +92,17 @@ app.get("/gate/preview", async (_req, res) => {
     if (mode === "usd") {
       priceUsd = await fetchPrice();
       requiredUsd = Number(cfg.min_usd);
-      if (Number.isFinite(requiredUsd) && priceUsd > 0) {
-        requiredTokens = requiredUsd / priceUsd;
-      }
+      if (Number.isFinite(requiredUsd) && priceUsd > 0) requiredTokens = requiredUsd / priceUsd;
     } else if (mode === "amount") {
       requiredTokens = Number(cfg.min_amount);
       if (!Number.isFinite(requiredTokens)) requiredTokens = null;
+
+      // Optional price for display only
       try {
         priceUsd = await fetchPrice();
-        if (priceUsd > 0 && requiredTokens !== null) {
-          requiredUsd = requiredTokens * priceUsd;
-        }
+        if (priceUsd > 0 && requiredTokens !== null) requiredUsd = requiredTokens * priceUsd;
       } catch {
-        // ignore price errors in amount-mode
+        // ignore
       }
     }
 
@@ -123,7 +120,12 @@ app.get("/gate/preview", async (_req, res) => {
   } catch (e: any) {
     return res.status(500).json({ error: e?.message || "Failed to load gate preview" });
   }
-});
+}
+
+// Canonical
+app.get("/gate-preview", handleGatePreview);
+// Backward-compatible alias
+app.get("/gate/preview", handleGatePreview);
 
 // Wallet auth: nonce
 app.get("/auth/nonce", async (req, res) => {
