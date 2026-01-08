@@ -51,6 +51,26 @@ a { color: inherit; }
   color: #111;
   font-weight: 700;
 }
+.btnDisabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.homeGrid {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 18px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .homeGrid {
+    grid-template-columns: 1fr;
+  }
+  .homeGrid .btn {
+    width: 100%;
+  }
+}
 
 .input {
   width: 100%;
