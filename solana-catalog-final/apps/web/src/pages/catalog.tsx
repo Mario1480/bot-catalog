@@ -140,6 +140,10 @@ export default function CatalogPage() {
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
 
+  // pagination (client-side over filtered list)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
+
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
 
@@ -287,6 +291,37 @@ export default function CatalogPage() {
     return list;
   }, [products, q, sort, selectedCategory, selectedTag]);
 
+  // reset to page 1 when filter/sort/search changes
+  useEffect(() => {
+    setPage(1);
+  }, [q, sort, selectedCategory, selectedTag]);
+
+  const totalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(filtered.length / Math.max(1, pageSize)));
+  }, [filtered.length, pageSize]);
+
+  useEffect(() => {
+    // clamp page if product list shrinks
+    setPage((p) => Math.min(Math.max(1, p), totalPages));
+  }, [totalPages]);
+
+  const paged = useMemo(() => {
+    const size = Math.max(1, pageSize);
+    const p = Math.min(Math.max(1, page), totalPages);
+    const start = (p - 1) * size;
+    return filtered.slice(start, start + size);
+  }, [filtered, page, pageSize, totalPages]);
+
+  const rangeLabel = useMemo(() => {
+    if (loading) return "Loading products…";
+    if (filtered.length === 0) return "0 item(s)";
+    const size = Math.max(1, pageSize);
+    const p = Math.min(Math.max(1, page), totalPages);
+    const start = (p - 1) * size + 1;
+    const end = Math.min(filtered.length, p * size);
+    return `${start}–${end} of ${filtered.length}`;
+  }, [loading, filtered.length, page, pageSize, totalPages]);
+
   return (
     <>
       <AppHeader />
@@ -297,7 +332,7 @@ export default function CatalogPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
               <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                {loading ? "Loading products…" : `${filtered.length} item(s)`}
+                {rangeLabel}
               </div>
             </div>
 
@@ -306,6 +341,17 @@ export default function CatalogPage() {
                 <option value="newest">Sort: Newest</option>
                 <option value="az">Sort: A → Z</option>
                 <option value="za">Sort: Z → A</option>
+              </select>
+              <select
+                className="input"
+                style={{ width: 160 }}
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+              >
+                <option value={12}>12 / page</option>
+                <option value={24}>24 / page</option>
+                <option value={48}>48 / page</option>
+                <option value={96}>96 / page</option>
               </select>
             </div>
           </div>
@@ -331,7 +377,7 @@ export default function CatalogPage() {
               </div>
 
               <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
+                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Coins</div>
                 <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
                   {tags.map((t) => (
                     <option key={t} value={t}>{t}</option>
@@ -376,56 +422,72 @@ export default function CatalogPage() {
                 <div style={{ color: "var(--muted)", marginTop: 6 }}>Try a different search or reset filters.</div>
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-                {filtered.map((p) => {
-                  const img = resolveImageSrc(p.image_url || p.imageUrl || "");
-                  const link = resolveLink(p.target_url || p.linkUrl || "");
-                  const title = getProductName(p);
+              <>
+                <PaginationBar
+                  page={page}
+                  totalPages={totalPages}
+                  onPage={setPage}
+                  disabled={loading || filtered.length === 0}
+                />
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+                  {paged.map((p) => {
+                    const img = resolveImageSrc(p.image_url || p.imageUrl || "");
+                    const link = resolveLink(p.target_url || p.linkUrl || "");
+                    const title = getProductName(p);
 
-                  return (
-                    <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                      <div
-                        style={{
-                          aspectRatio: "1 / 1",
-                          background: "rgba(255,255,255,.04)",
-                          borderBottom: "1px solid var(--border)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {img ? (
-                          <img src={img} alt={title} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                        ) : (
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
-                        )}
-                      </div>
-
-                      <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                        <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
-
-                        {/* ✅ Buttons: Details oben, Open bleibt */}
-                        <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
-                          <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
-                            Details
-                          </button>
-
-                          {link ? (
-                            <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
-                              Start Bot
-                            </a>
+                    return (
+                      <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                        <div
+                          style={{
+                            aspectRatio: "1 / 1",
+                            background: "rgba(255,255,255,.04)",
+                            borderBottom: "1px solid var(--border)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {img ? (
+                            <img src={img} alt={title} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                           ) : (
-                            <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
-                              No link
-                            </button>
+                            <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
                           )}
                         </div>
+
+                        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                          <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
+
+                          {/* ✅ Buttons: Details oben, Open bleibt */}
+                          <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
+                            <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
+                              Details
+                            </button>
+
+                            {link ? (
+                              <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
+                                Start Bot
+                              </a>
+                            ) : (
+                              <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
+                                No link
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: 14 }}>
+                  <PaginationBar
+                    page={page}
+                    totalPages={totalPages}
+                    onPage={setPage}
+                    disabled={loading || filtered.length === 0}
+                  />
+                </div>
+              </>
             )}
           </main>
         </div>
@@ -563,4 +625,64 @@ function getCategoriesFromProduct(p: Product): string[] {
 function getTagsFromProduct(p: Product): string[] {
   const tags = Array.isArray(p.tags) ? p.tags : [];
   return tags.map((t) => String(t).trim()).filter(Boolean);
+}
+
+function PaginationBar(props: {
+  page: number;
+  totalPages: number;
+  onPage: (p: number) => void;
+  disabled?: boolean;
+}) {
+  const { page, totalPages, onPage, disabled } = props;
+
+  const canPrev = !disabled && page > 1;
+  const canNext = !disabled && page < totalPages;
+
+  const jump = (p: number) => {
+    const next = Math.min(Math.max(1, p), totalPages);
+    onPage(next);
+  };
+
+  // show a compact window around current page
+  const windowSize = 5;
+  const start = Math.max(1, page - Math.floor(windowSize / 2));
+  const end = Math.min(totalPages, start + windowSize - 1);
+  const pages: number[] = [];
+  for (let i = start; i <= end; i++) pages.push(i);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+      <div style={{ color: "var(--muted)", fontSize: 13 }}>
+        Page <b style={{ color: "var(--text)" }}>{page}</b> / {totalPages}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button className="btn" disabled={!canPrev} onClick={() => jump(1)}>
+          « First
+        </button>
+        <button className="btn" disabled={!canPrev} onClick={() => jump(page - 1)}>
+          ‹ Prev
+        </button>
+
+        {pages.map((p) => (
+          <button
+            key={p}
+            className={p === page ? "btn btnPrimary" : "btn"}
+            onClick={() => jump(p)}
+            disabled={disabled}
+            style={{ paddingInline: 12 }}
+          >
+            {p}
+          </button>
+        ))}
+
+        <button className="btn" disabled={!canNext} onClick={() => jump(page + 1)}>
+          Next ›
+        </button>
+        <button className="btn" disabled={!canNext} onClick={() => jump(totalPages)}>
+          Last »
+        </button>
+      </div>
+    </div>
+  );
 }
