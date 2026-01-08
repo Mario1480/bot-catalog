@@ -49,9 +49,13 @@ export default function AdminDashboardPage() {
 
   const [gate, setGate] = useState<GateConfig | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [productStats, setProductStats] = useState<any>(null);
   const [gatePreview, setGatePreview] = useState<any>(null);
   const [gateErr, setGateErr] = useState("");
+  const [status, setStatus] = useState<any>(null);
+  const [statusErr, setStatusErr] = useState("");
+  const [analytics, setAnalytics] = useState<any>(null);
+  const [analyticsErr, setAnalyticsErr] = useState("");
 
   async function loadGatePreview() {
     setGateErr("");
@@ -63,8 +67,30 @@ export default function AdminDashboardPage() {
     }
   }
 
+  async function loadStatus() {
+    setStatusErr("");
+    try {
+      const out = await apiFetch("/admin/status", { method: "GET" }, token);
+      setStatus(out);
+    } catch (e: any) {
+      setStatusErr(e?.message || "Failed to load status");
+    }
+  }
+
+  async function loadAnalytics() {
+    setAnalyticsErr("");
+    try {
+      const out = await apiFetch("/admin/user-analytics", { method: "GET" }, token);
+      setAnalytics(out);
+    } catch (e: any) {
+      setAnalyticsErr(e?.message || "Failed to load user analytics");
+    }
+  }
+
   useEffect(() => {
     loadGatePreview();
+    loadStatus();
+    loadAnalytics();
   }, []);
 
   useEffect(() => {
@@ -82,15 +108,15 @@ export default function AdminDashboardPage() {
       try {
         // parallel laden
         // Load all products for dashboard statistics (until a /admin/products/count endpoint exists)
-        const [gateOut, catsOut, prodOut] = await Promise.all([
+        const [gateOut, catsOut, prodStatsOut] = await Promise.all([
           apiFetch("/admin/gate-config", { method: "GET" }, token),
           apiFetch("/admin/categories?includeInactive=1", { method: "GET" }, token),
-          apiFetch("/admin/products?page=1&pageSize=5000", { method: "GET" }, token),
+          apiFetch("/admin/products/stats", { method: "GET" }, token),
         ]);
 
         setGate(gateOut || null);
         setCategories(Array.isArray(catsOut) ? catsOut : []);
-        setProducts(Array.isArray(prodOut) ? prodOut : []);
+        setProductStats(prodStatsOut || null);
       } catch (e: any) {
         const msg = (e?.message || "Failed to load dashboard").toString();
         setErr(msg);
@@ -111,9 +137,9 @@ export default function AdminDashboardPage() {
     const totalCategories = categories.length;
     const activeCategories = categories.filter((c) => c.active).length;
 
-    const totalProducts = products.length;
-    const publishedProducts = products.filter((p) => p.status === "published").length;
-    const draftProducts = products.filter((p) => p.status === "draft").length;
+    const totalProducts = productStats?.total ?? 0;
+    const publishedProducts = productStats?.published ?? 0;
+    const draftProducts = productStats?.draft ?? 0;
 
     const gateEnabled = !!gate?.enabled;
     const gateMode =
@@ -135,7 +161,7 @@ export default function AdminDashboardPage() {
       gateMode,
       gateExtra,
     };
-  }, [categories, products, gate]);
+  }, [categories, productStats, gate]);
 
   return (
     <AdminLayout title="Admin Dashboard">
@@ -262,6 +288,67 @@ export default function AdminDashboardPage() {
                   <Link className="btn btnPrimary" href="/admin/products-edit" style={{ width: "100%" as any }}>
                     + Create Product
                   </Link>
+                </div>
+              </div>
+
+              {/* Health / Status */}
+              <div className="card" style={{ padding: 16 }}>
+                <div style={{ fontWeight: 900, fontSize: 16 }}>Health / Status</div>
+
+                {statusErr ? (
+                  <div style={{ marginTop: 10, color: "#ff6b6b", fontSize: 13 }}>{statusErr}</div>
+                ) : status ? (
+                  <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
+                    <div>
+                      API: <span style={{ color: "var(--text)" }}>{"OK"}</span> · Uptime:{" "}
+                      <span style={{ color: "var(--text)" }}>{Math.floor(Number(status.uptimeSec || 0) / 60)}m</span>
+                    </div>
+                    <div>
+                      DB:{" "}
+                      <span style={{ color: "var(--text)" }}>{status.dbOk ? "OK" : "DOWN"}</span> · Redis:{" "}
+                      <span style={{ color: "var(--text)" }}>{status.redisOk ? "OK" : "DOWN"}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>Loading…</div>
+                )}
+
+                <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>User analytics (wallet logins)</div>
+
+                  {analyticsErr ? (
+                    <div style={{ marginTop: 8, color: "#ff6b6b", fontSize: 13 }}>{analyticsErr}</div>
+                  ) : analytics ? (
+                    <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
+                      <div>
+                        24h: <span style={{ color: "var(--text)" }}>{analytics.d1?.uniqueWallets ?? 0}</span> wallets ·{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d1?.attempts ?? 0}</span> attempts · Allow{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d1?.allowed ?? 0}</span> / Block{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d1?.blocked ?? 0}</span>
+                      </div>
+                      <div>
+                        7d: <span style={{ color: "var(--text)" }}>{analytics.d7?.uniqueWallets ?? 0}</span> wallets ·{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d7?.attempts ?? 0}</span> attempts · Allow{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d7?.allowed ?? 0}</span> / Block{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d7?.blocked ?? 0}</span>
+                      </div>
+                      <div>
+                        30d: <span style={{ color: "var(--text)" }}>{analytics.d30?.uniqueWallets ?? 0}</span> wallets ·{" "}
+                        <span style={{ color: "var(--text)" }}>{analytics.d30?.attempts ?? 0}</span> attempts
+                      </div>
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
+                        Hinweis: Zählt Wallet-Login-Versuche (aus /auth/verify) seit dem letzten Deploy; Daten liegen in Redis.
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, opacity: 0.75, fontSize: 13 }}>Loading…</div>
+                  )}
+                </div>
+
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button className="btn" onClick={() => { loadStatus(); loadAnalytics(); }}>
+                    Refresh
+                  </button>
                 </div>
               </div>
             </div>
