@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { apiBase } from "../lib/api";
+import { AppLayout } from "../components/AppLayout";
 
 type GatePreview = {
   enabled: boolean;
@@ -25,6 +26,7 @@ export default function HomePage() {
   }, [API]);
 
   return (
+    <AppLayout>
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
       <h1 style={{ fontSize: 32, fontWeight: 900 }}>uTrade Bot Catalog</h1>
 
@@ -104,5 +106,6 @@ export default function HomePage() {
         </Link>
       </div>
     </main>
+    </AppLayout>
   );
 }
