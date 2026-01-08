@@ -369,8 +369,8 @@ export default function CatalogPage() {
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-              <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
+            <div className="catalogGrid">
+              <aside className="card catalogSidebar" style={{ padding: 16 }}>
                 <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
                 <input
                   className="input"
