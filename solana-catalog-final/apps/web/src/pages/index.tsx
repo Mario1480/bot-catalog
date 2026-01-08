@@ -71,8 +71,9 @@ export default function HomePage() {
       authInFlightRef.current = false;
       lastAuthedPubkeyRef.current = null;
       setLoading(false);
-      setJwtOk(false);
-      setStatus("Connect your wallet to unlock the catalog.");
+      // Do not force-logout / redirect on disconnect.
+      // We only clear in-memory state; stored JWT remains until it expires or is rejected by the API.
+      setStatus("Wallet disconnected. You can reconnect to refresh access.");
       return;
     }
 
@@ -120,8 +121,7 @@ export default function HomePage() {
         setJwtOk(true);
         lastAuthedPubkeyRef.current = pubkey;
 
-        setStatus("Access granted. Redirecting…");
-        window.location.href = "/catalog";
+        setStatus("Access granted. You can open the catalog now.");
       } catch (e: any) {
         lastAuthedPubkeyRef.current = null;
 
@@ -139,7 +139,7 @@ export default function HomePage() {
         const lower = msg.toLowerCase();
         if (lower.includes("insufficient") || lower.includes("not enough") || lower.includes("gate")) {
           setStatus(
-            "Access denied by token gate. Make sure this wallet holds the required amount, then reconnect and try again."
+            "Access denied by token gate. This wallet doesn't meet the requirement yet. Top up the required tokens, then disconnect + reconnect and try again."
           );
         } else {
           setStatus(msg);
@@ -257,7 +257,7 @@ export default function HomePage() {
                   {jwtChecking ? "Checking…" : "Open Catalog"}
                 </button>
                 <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.9 }}>
-                  {jwtChecking ? "Validating access…" : "Connect your wallet above to unlock."}
+                  {jwtChecking ? "Validating access…" : "Connect your wallet to unlock."}
                 </span>
               </>
             );
