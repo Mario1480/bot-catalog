@@ -22,56 +22,10 @@ type Product = {
   category?: string;
   createdAt?: string;
 
-  // ✅ allow unknown keys coming from API
   [key: string]: any;
 };
 
-
 type SortKey = "newest" | "az" | "za";
-
-type GatePreview = {
-  enabled: boolean;
-  mode: "usd" | "amount" | "none";
-  priceUsd: number | null;
-  requiredUsd: number | null;
-  requiredTokens: number | null;
-  mint_address?: string;
-};
-
-function fmtUsd(n: number | null | undefined) {
-  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "–";
-  return `$${Number(n).toFixed(2)}`;
-}
-
-function fmtTokens(n: number | null | undefined) {
-  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "–";
-  const x = Number(n);
-  // show more precision for small values
-  if (x < 1) return x.toFixed(4);
-  if (x < 100) return x.toFixed(2);
-  return x.toFixed(0);
-}
-
-function resolveApiBase() {
-  return (process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip").replace(/\/$/, "");
-}
-
-function gateHintFromError(msg: string) {
-  const m = (msg || "").toLowerCase();
-  if (m.includes("insufficient") || m.includes("not enough") || m.includes("balance")) {
-    return "Your wallet is connected, but you don’t meet the token requirement yet.";
-  }
-  if (m.includes("gate") || m.includes("token") || m.includes("gated")) {
-    return "Access is token-gated. Connect the correct wallet and make sure it meets the requirement.";
-  }
-  if (m.includes("unauthorized") || m.includes("invalid token") || m.includes("jwt") || m.includes("token expired")) {
-    return "Your session expired. Please reconnect your wallet.";
-  }
-  if (m.includes("forbidden") || m.includes("status 403")) {
-    return "Access denied. You may not meet the token requirement.";
-  }
-  return "Could not load the catalog. Please try again.";
-}
 
 function normalizeText(v: any) {
   return (v ?? "").toString().toLowerCase().trim();
@@ -107,9 +61,7 @@ function resolveLink(raw: string) {
 function buildExtraFields(p: Product) {
   const out: Array<[string, any]> = [];
 
-  // 1) fields als Objekt oder JSON-String
   let fieldsObj: Record<string, any> | null = null;
-
   if (p.fields && typeof p.fields === "object") {
     fieldsObj = p.fields as Record<string, any>;
   } else if (typeof p.fields === "string") {
@@ -126,7 +78,6 @@ function buildExtraFields(p: Product) {
     }
   }
 
-  // 2) Alle unbekannten Keys aus dem API-Objekt anzeigen
   const known = new Set([
     "id",
     "title",
@@ -152,7 +103,6 @@ function buildExtraFields(p: Product) {
     else out.push([k, v]);
   }
 
-  // Deduplizieren
   const seen = new Set<string>();
   const deduped: Array<[string, any]> = [];
   for (const [k, v] of out) {
@@ -177,228 +127,99 @@ function isAuthErrorMessage(msg: string) {
   );
 }
 
+function notifyJwtChanged() {
+  try {
+    window.dispatchEvent(new Event("user_jwt_changed"));
+  } catch {}
+}
+
 export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
-  // Track auth session (same-tab safe). localStorage changes do NOT trigger re-render by default.
-  const [jwt, setJwt] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem("user_jwt");
-  });
-
-  // Helper: explicit navigation to start page (for reconnect button)
-  function goBackToStart() {
-    window.location.href = "/";
-  }
-
-  const [gate, setGate] = useState<GatePreview | null>(null);
-  const [gateErr, setGateErr] = useState("");
-
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
-
-  // pagination (client-side over filtered list)
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(24);
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
 
-  // ✅ Modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
-  // responsive layout
-  const [isMobile, setIsMobile] = useState(false);
+  // --- auth token state (reacts live to connect/disconnect)
+  const [jwt, setJwt] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("user_jwt") || "";
+  });
 
+  const [needsAuth, setNeedsAuth] = useState<boolean>(() => !jwt);
+
+  // Listen for token changes (WalletConnect dispatches user_jwt_changed)
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(max-width: 860px)");
-    const apply = () => setIsMobile(!!mq.matches);
-    apply();
+    const sync = () => {
+      let t = "";
+      try {
+        t = localStorage.getItem("user_jwt") || "";
+      } catch {}
 
-    // Safari compatibility
-    if (typeof mq.addEventListener === "function") {
-      mq.addEventListener("change", apply);
-      return () => mq.removeEventListener("change", apply);
-    }
-    // @ts-ignore
-    mq.addListener(apply);
-    // @ts-ignore
-    return () => mq.removeListener(apply);
+      setJwt(t);
+
+      if (!t) {
+        // immediately hide content on disconnect
+        setNeedsAuth(true);
+        setProducts([]);
+        setSelectedProduct(null);
+        setErr("");
+        setLoading(false);
+      } else {
+        setNeedsAuth(false);
+      }
+    };
+
+    sync();
+    window.addEventListener("user_jwt_changed", sync);
+    return () => window.removeEventListener("user_jwt_changed", sync);
   }, []);
 
-  // Helper to fetch all products across paginated responses
-  async function fetchAllProducts(jwt: string): Promise<Product[]> {
-    const pageSize = 200;
-    let page = 1;
-    const all: Product[] = [];
-    const seen = new Set<string>();
-
-    while (page <= 200) {
-      const qs = `?page=${page}&pageSize=${pageSize}`;
-      const out: any = await apiFetch(`/products${qs}`, { method: "GET" }, jwt);
-
-      // Support both array and object shapes
-      const items: Product[] = Array.isArray(out)
-        ? (out as Product[])
-        : Array.isArray(out?.items)
-          ? (out.items as Product[])
-          : Array.isArray(out?.products)
-            ? (out.products as Product[])
-            : [];
-
-      // If the backend ignores pagination and returns everything as an array once, we are done.
-      if (Array.isArray(out) && page === 1) return items;
-
-      if (!items.length) break;
-
-      let addedThisPage = 0;
-      for (const p of items) {
-        const id = String((p as any)?.id ?? "");
-        if (id && seen.has(id)) continue;
-        if (id) seen.add(id);
-        all.push(p);
-        addedThisPage++;
-      }
-
-      // If we didn't add anything new, stop to avoid infinite loops
-      if (addedThisPage === 0) break;
-
-      const total = Number(out?.total ?? out?.count ?? NaN);
-      if (Number.isFinite(total) && all.length >= total) break;
-
-      page++;
-    }
-
-    return all;
-  }
-
+  // Load products whenever jwt becomes available
   useEffect(() => {
-    if (!jwt) {
-      // Immediately hide gated content when session disappears (disconnect/logout)
-      setProducts([]);
-      setSelectedProduct(null);
-      setLoading(false);
-      setErr("Please connect your wallet to view the catalog.");
-      return;
-    }
+    if (!jwt) return;
+
+    let cancelled = false;
 
     (async () => {
       try {
         setLoading(true);
         setErr("");
 
-        const items = await fetchAllProducts(jwt);
+        const out = await apiFetch("/products", { method: "GET" }, jwt);
+        const items = Array.isArray(out) ? out : out?.items || out?.products || [];
+        if (cancelled) return;
         setProducts(items);
       } catch (e: any) {
         const msg = (e?.message || "Failed to load products").toString();
+        if (cancelled) return;
+        setErr(msg);
 
-        // If auth/gate fails: clear session + immediately hide content
         if (isAuthErrorMessage(msg)) {
           try {
             localStorage.removeItem("user_jwt");
+            localStorage.removeItem("user_pubkey");
           } catch {}
-          setJwt(null);
-          setProducts([]);
-          setSelectedProduct(null);
-          setLoading(false);
-          setErr("Session expired. Please reconnect your wallet on the start page.");
-          return;
+          notifyJwtChanged(); // triggers sync() above to clear UI immediately
         }
-
-        setErr(msg);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
-  }, [jwt]);
-
-  // Keep `jwt` state in sync with localStorage.
-  // - "storage" handles other tabs
-  // - "user_jwt_changed" is a custom same-tab event fired by our WalletConnect on connect/disconnect
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const readJwt = () => {
-      try {
-        const next = localStorage.getItem("user_jwt");
-        setJwt((prev) => (prev === next ? prev : next));
-      } catch {
-        setJwt(null);
-      }
-    };
-
-    const onStorage = (e: StorageEvent) => {
-      if (e.key && e.key !== "user_jwt") return;
-      readJwt();
-    };
-
-    const onJwtChanged = () => readJwt();
-
-    const onFocus = () => readJwt();
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") readJwt();
-    };
-
-    // Initial sync
-    readJwt();
-
-    window.addEventListener("storage", onStorage);
-    // @ts-ignore - custom event
-    window.addEventListener("user_jwt_changed", onJwtChanged);
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      window.removeEventListener("storage", onStorage);
-      // @ts-ignore - custom event
-      window.removeEventListener("user_jwt_changed", onJwtChanged);
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
+      cancelled = true;
     };
-  }, []);
+  }, [jwt]);
 
-  // Fetch public gate preview info for UX display
-  useEffect(() => {
-    // public info for UX display
-    const API = resolveApiBase();
-    setGateErr("");
-    fetch(`${API}/gate/preview`)
-      .then((r) => r.json())
-      .then((d) => setGate(d))
-      .catch(() => setGateErr("Failed to load token gate info"));
-  }, []);
-
-  const categories = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of products) {
-      for (const c of getCategoriesFromProduct(p)) set.add(c);
-    }
-    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [products]);
-
-  const tags = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of products) {
-      for (const t of getTagsFromProduct(p)) set.add(t);
-    }
-    return ["All", ...Array.from(set).sort((a, b) => a.localeCompare(b))];
-  }, [products]);
-
-  // Keep selected values valid when data changes
-  useEffect(() => {
-    if (selectedCategory !== "All" && !categories.includes(selectedCategory)) {
-      setSelectedCategory("All");
-    }
-  }, [categories, selectedCategory]);
-
-  useEffect(() => {
-    if (selectedTag !== "All" && !tags.includes(selectedTag)) {
-      setSelectedTag("All");
-    }
-  }, [tags, selectedTag]);
+  const categories = useMemo(() => ["All"], []);
+  const tags = useMemo(() => ["All"], []);
 
   const filtered = useMemo(() => {
     const qq = normalizeText(q);
@@ -407,14 +228,9 @@ export default function CatalogPage() {
       const title = normalizeText(getProductName(p));
       const desc = normalizeText(p.description);
 
-      const cats = getCategoriesFromProduct(p).map(normalizeText);
-      const ts = getTagsFromProduct(p).map(normalizeText);
-
       const matchQ = !qq || title.includes(qq) || desc.includes(qq);
-      const matchCategory =
-        selectedCategory === "All" || cats.includes(normalizeText(selectedCategory));
-      const matchTag =
-        selectedTag === "All" || ts.includes(normalizeText(selectedTag));
+      const matchCategory = selectedCategory === "All";
+      const matchTag = selectedTag === "All";
 
       return matchQ && matchCategory && matchTag;
     });
@@ -434,490 +250,318 @@ export default function CatalogPage() {
     return list;
   }, [products, q, sort, selectedCategory, selectedTag]);
 
-  // reset to page 1 when filter/sort/search changes
-  useEffect(() => {
-    setPage(1);
-  }, [q, sort, selectedCategory, selectedTag]);
-
-  const totalPages = useMemo(() => {
-    return Math.max(1, Math.ceil(filtered.length / Math.max(1, pageSize)));
-  }, [filtered.length, pageSize]);
-
-  useEffect(() => {
-    // clamp page if product list shrinks
-    setPage((p) => Math.min(Math.max(1, p), totalPages));
-  }, [totalPages]);
-
-  const paged = useMemo(() => {
-    const size = Math.max(1, pageSize);
-    const p = Math.min(Math.max(1, page), totalPages);
-    const start = (p - 1) * size;
-    return filtered.slice(start, start + size);
-  }, [filtered, page, pageSize, totalPages]);
-
-  const rangeLabel = useMemo(() => {
-    if (loading) return "Loading products…";
-    if (filtered.length === 0) return "0 item(s)";
-    const size = Math.max(1, pageSize);
-    const p = Math.min(Math.max(1, page), totalPages);
-    const start = (p - 1) * size + 1;
-    const end = Math.min(filtered.length, p * size);
-    return `${start}–${end} of ${filtered.length}`;
-  }, [loading, filtered.length, page, pageSize, totalPages]);
-
   return (
     <>
       <AppHeader />
 
       <div className="container">
-        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                {rangeLabel}
-              </div>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <select className="input" style={{ width: 180 }} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
-                <option value="newest">Sort: Newest</option>
-                <option value="az">Sort: A → Z</option>
-                <option value="za">Sort: Z → A</option>
-              </select>
-              <select
-                className="input"
-                style={{ width: 160 }}
-                value={pageSize}
-                onChange={(e) => setPageSize(Number(e.target.value))}
-              >
-                <option value={12}>12 / page</option>
-                <option value={24}>24 / page</option>
-                <option value={48}>48 / page</option>
-                <option value={96}>96 / page</option>
-              </select>
+        {/* If not authenticated, show a friendly notice and no products */}
+        {needsAuth ? (
+          <div className="card" style={{ padding: 16, marginTop: 16 }}>
+            <div style={{ fontSize: 18, fontWeight: 900 }}>Please connect your wallet</div>
+            <div style={{ color: "var(--muted)", marginTop: 8, lineHeight: 1.5 }}>
+              To access the catalog you need to connect your wallet and sign the login message.
             </div>
           </div>
-        </div>
+        ) : null}
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: isMobile ? "1fr" : "280px 1fr",
-            gap: 16,
-            alignItems: "start",
-          }}
-        >
-          <aside
-            className="card"
-            style={{
-              padding: 16,
-              height: "fit-content",
-              position: isMobile ? "static" : "sticky",
-              top: isMobile ? undefined : 88,
-              // On mobile, show filters ABOVE products
-              order: isMobile ? -1 : 0,
-            }}
-          >
-            <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
-            <input className="input" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
-
-            <div style={{ height: 14 }} />
-
-            <div style={{ fontWeight: 900, marginBottom: 10 }}>Filters</div>
-
-            <div style={{ display: "grid", gap: 10 }}>
-              <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
-                <select className="input" value={selectedCategory} onChange={(e) => setSelectedCategory(e.target.value)}>
-                  {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Coins</div>
-                <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
-                  {tags.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button
-                className="btn"
-                onClick={() => {
-                  setQ("");
-                  setSelectedCategory("All");
-                  setSelectedTag("All");
-                  setSort("newest");
+        {!needsAuth ? (
+          <>
+            <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  flexWrap: "wrap",
                 }}
               >
-                Reset filters
-              </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                    {loading ? "Loading products…" : `${filtered.length} item(s)`}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <select
+                    className="input"
+                    style={{ width: 180 }}
+                    value={sort}
+                    onChange={(e) => setSort(e.target.value as SortKey)}
+                  >
+                    <option value="newest">Sort: Newest</option>
+                    <option value="az">Sort: A → Z</option>
+                    <option value="za">Sort: Z → A</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
-            <div style={{ height: 18 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
+              <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
+                <input
+                  className="input"
+                  placeholder="Search products…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                />
 
-            {gate?.enabled ? (
-              <div className="card" style={{ padding: 12, background: "rgba(0,150,255,.06)", borderColor: "rgba(0,150,255,.22)" }}>
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>🔐 Token-gated access</div>
+                <div style={{ height: 14 }} />
 
-                {gate.mode === "usd" ? (
-                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-                    Required: <b style={{ color: "var(--text)" }}>{fmtUsd(gate.requiredUsd)}</b>
-                    {gate.priceUsd ? (
-                      <> (~{fmtTokens(gate.requiredTokens)} tokens · ${Number(gate.priceUsd).toFixed(4)} each)</>
-                    ) : null}
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Filters</div>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Category</div>
+                    <select
+                      className="input"
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                    >
+                      {categories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : gate.mode === "amount" ? (
-                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-                    Required: <b style={{ color: "var(--text)" }}>{fmtTokens(gate.requiredTokens)} tokens</b>
-                    {gate.priceUsd && gate.requiredUsd ? (
-                      <> (~{fmtUsd(gate.requiredUsd)})</>
-                    ) : null}
+
+                  <div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
+                    <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
+                      {tags.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ) : (
-                  <div style={{ fontSize: 13, color: "var(--muted)" }}>Gate mode not set.</div>
-                )}
 
-                {gateErr ? (
-                  <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,80,80,.9)" }}>{gateErr}</div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="badge">
-                <span className="badgeDot" />
-                Access open
-              </div>
-            )}
-          </aside>
-
-          <main style={{ order: 1 }}>
-            {err && (
-              <div
-                className="card"
-                style={{
-                  padding: 14,
-                  marginBottom: 14,
-                  borderColor: "rgba(255,80,80,.35)",
-                  background: "rgba(255,80,80,.08)",
-                }}
-              >
-                <div style={{ fontWeight: 900 }}>Access problem</div>
-                <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.5 }}>
-                  {gateHintFromError(err)}
-                </div>
-                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>{err}</div>
-
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button className="btn btnPrimary" onClick={goBackToStart}>
-                    Reconnect wallet
-                  </button>
                   <button
                     className="btn"
                     onClick={() => {
-                      try {
-                        setJwt(localStorage.getItem("user_jwt"));
-                      } catch {
-                        setJwt(null);
-                      }
+                      setQ("");
+                      setSelectedCategory("All");
+                      setSelectedTag("All");
+                      setSort("newest");
                     }}
                   >
-                    Retry
+                    Reset filters
                   </button>
-                  <button className="btn" onClick={() => setErr("")}>Dismiss</button>
-                </div>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="card" style={{ padding: 18 }}>Loading…</div>
-            ) : filtered.length === 0 ? (
-              <div className="card" style={{ padding: 18 }}>
-                <div style={{ fontWeight: 900 }}>No results</div>
-                <div style={{ color: "var(--muted)", marginTop: 6 }}>Try a different search or reset filters.</div>
-              </div>
-            ) : (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <PaginationBar
-                    page={page}
-                    totalPages={totalPages}
-                    onPage={setPage}
-                    disabled={loading || filtered.length === 0}
-                  />
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
-                    gap: 14,
-                  }}
-                >
-                  {paged.map((p) => {
-                    const img = resolveImageSrc(p.image_url || p.imageUrl || "");
-                    const link = resolveLink(p.target_url || p.linkUrl || "");
-                    const title = getProductName(p);
+                <div style={{ height: 18 }} />
 
-                    return (
-                      <div key={p.id} className="card" style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}>
-                        <div
-                          style={{
-                            aspectRatio: "1 / 1",
-                            background: "rgba(255,255,255,.04)",
-                            borderBottom: "1px solid var(--border)",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {img ? (
-                            <img src={img} alt={title} loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                          ) : (
-                            <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
-                          )}
-                        </div>
-
-                        <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-                          <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
-
-                          {/* ✅ Buttons: Details oben, Open bleibt */}
-                          <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
-                            <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
-                              Details
-                            </button>
-
-                            {link ? (
-                              <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer" style={{ width: "100%" }}>
-                                Start Bot
-                              </a>
-                            ) : (
-                              <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
-                                No link
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="badge">
+                  <span className="badgeDot" />
+                  Token-gated access active
                 </div>
-                <div style={{ marginTop: 18 }}>
-                  <PaginationBar
-                    page={page}
-                    totalPages={totalPages}
-                    onPage={setPage}
-                    disabled={loading || filtered.length === 0}
-                  />
-                </div>
-              </>
-            )}
-          </main>
-        </div>
-      </div>
+              </aside>
 
-      {/* ✅ DETAILS MODAL (same page) */}
-      {selectedProduct && (() => {
-        const title = getProductName(selectedProduct);
-        const img = resolveImageSrc(selectedProduct.image_url || selectedProduct.imageUrl || "");
-        const link = resolveLink(selectedProduct.target_url || selectedProduct.linkUrl || "");
-        const extra = buildExtraFields(selectedProduct);
-
-        return (
-          <div
-            onClick={() => setSelectedProduct(null)}
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,.65)",
-              zIndex: 60,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 12,
-            }}
-          >
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="card"
-              style={{
-                width: "min(980px, 100%)",
-                maxHeight: "90vh",
-                overflow: "auto",
-                padding: 16,
-                margin: "0 auto",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
-                <button className="btn" onClick={() => setSelectedProduct(null)}>✕</button>
-              </div>
-
-              {img ? (
-                <div style={{ marginTop: 14 }}>
-                  <img
-                    src={img}
-                    alt={title}
-                    loading="lazy"
-                    decoding="async"
+              <main>
+                {err && (
+                  <div
+                    className="card"
                     style={{
-                      width: "100%",
-                      maxWidth: 500,
-                      maxHeight: 500,
-                      aspectRatio: "1 / 1",
-                      objectFit: "cover",
-                      borderRadius: 12,
-                      border: "1px solid var(--border)",
-                      marginInline: "auto",
-                      display: "block",
+                      padding: 14,
+                      marginBottom: 14,
+                      borderColor: "rgba(255,80,80,.35)",
+                      background: "rgba(255,80,80,.08)",
                     }}
-                  />
-                </div>
-              ) : null}
+                  >
+                    <div style={{ fontWeight: 900 }}>Error</div>
+                    <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+                  </div>
+                )}
 
-              {selectedProduct.description ? (
-                <div style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6 }}>
-                  {String(selectedProduct.description)}
-                </div>
-              ) : null}
-
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontWeight: 900, marginBottom: 10 }}>Details</div>
-
-                {extra.length ? (
-                  <div className="card" style={{ padding: 12 }}>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {extra.map(([k, v]) => (
-                        <div key={k} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 180px) 1fr", gap: 12, alignItems: "start" }}>
-                          <div style={{ color: "var(--muted)", fontSize: 13 }}>{k}</div>
-                          <div style={{ fontSize: 13, wordBreak: "break-word" }}>{String(v)}</div>
-                        </div>
-                      ))}
-                    </div>
+                {loading ? (
+                  <div className="card" style={{ padding: 18 }}>
+                    Loading…
+                  </div>
+                ) : filtered.length === 0 ? (
+                  <div className="card" style={{ padding: 18 }}>
+                    <div style={{ fontWeight: 900 }}>No results</div>
+                    <div style={{ color: "var(--muted)", marginTop: 6 }}>Try a different search or reset filters.</div>
                   </div>
                 ) : (
-                  <div style={{ color: "var(--muted)", fontSize: 13 }}>No extra fields</div>
-                )}
-              </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+                    {filtered.map((p) => {
+                      const img = resolveImageSrc(p.image_url || p.imageUrl || "");
+                      const link = resolveLink(p.target_url || p.linkUrl || "");
+                      const title = getProductName(p);
 
-              <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {link ? (
-                  <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
-                    Start Bot
-                  </a>
-                ) : (
-                  <button className="btn" disabled style={{ opacity: 0.55 }}>
-                    No link
-                  </button>
-                )}
+                      return (
+                        <div
+                          key={p.id}
+                          className="card"
+                          style={{ overflow: "hidden", display: "flex", flexDirection: "column" }}
+                        >
+                          {/* square image */}
+                          <div
+                            style={{
+                              aspectRatio: "1 / 1",
+                              background: "rgba(255,255,255,.04)",
+                              borderBottom: "1px solid var(--border)",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            {img ? (
+                              <img
+                                src={img}
+                                alt={title}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                              />
+                            ) : (
+                              <div style={{ color: "var(--muted)", fontSize: 13 }}>No image</div>
+                            )}
+                          </div>
 
-                <button className="btn" onClick={() => setSelectedProduct(null)}>
-                  Close
-                </button>
-              </div>
+                          <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
+                            <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
+
+                            <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
+                              <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
+                                Details
+                              </button>
+
+                              {link ? (
+                                <a
+                                  className="btn btnPrimary"
+                                  href={link}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ width: "100%" }}
+                                >
+                                  Start Bot
+                                </a>
+                              ) : (
+                                <button className="btn" disabled style={{ width: "100%", opacity: 0.55, cursor: "not-allowed" }}>
+                                  No link
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </main>
             </div>
-          </div>
-        );
-      })()}
+
+            {/* DETAILS MODAL */}
+            {selectedProduct && (() => {
+              const title = getProductName(selectedProduct);
+              const img = resolveImageSrc(selectedProduct.image_url || selectedProduct.imageUrl || "");
+              const link = resolveLink(selectedProduct.target_url || selectedProduct.linkUrl || "");
+              const extra = buildExtraFields(selectedProduct);
+
+              return (
+                <div
+                  onClick={() => setSelectedProduct(null)}
+                  style={{
+                    position: "fixed",
+                    inset: 0,
+                    background: "rgba(0,0,0,.65)",
+                    zIndex: 60,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 16,
+                  }}
+                >
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="card"
+                    style={{
+                      width: "min(980px, 100%)",
+                      maxHeight: "90vh",
+                      overflow: "auto",
+                      padding: 18,
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+                      <button className="btn" onClick={() => setSelectedProduct(null)}>✕</button>
+                    </div>
+
+                    {img ? (
+                      <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
+                        <img
+                          src={img}
+                          alt={title}
+                          style={{
+                            width: "100%",
+                            maxWidth: 500,
+                            aspectRatio: "1 / 1",
+                            objectFit: "cover",
+                            borderRadius: 12,
+                            border: "1px solid var(--border)",
+                          }}
+                        />
+                      </div>
+                    ) : null}
+
+                    {selectedProduct.description ? (
+                      <div style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                        {String(selectedProduct.description)}
+                      </div>
+                    ) : null}
+
+                    <div style={{ marginTop: 16 }}>
+                      <div style={{ fontWeight: 900, marginBottom: 10 }}>Details</div>
+
+                      {extra.length ? (
+                        <div className="card" style={{ padding: 12 }}>
+                          <div style={{ display: "grid", gap: 10 }}>
+                            {extra.map(([k, v]) => (
+                              <div
+                                key={k}
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: "180px 1fr",
+                                  gap: 12,
+                                  alignItems: "start",
+                                }}
+                              >
+                                <div style={{ color: "var(--muted)", fontSize: 13 }}>{k}</div>
+                                <div style={{ fontSize: 13, wordBreak: "break-word" }}>{String(v)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ color: "var(--muted)", fontSize: 13 }}>No extra details</div>
+                      )}
+                    </div>
+
+                    <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      {link ? (
+                        <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
+                          Start Bot
+                        </a>
+                      ) : (
+                        <button className="btn" disabled style={{ opacity: 0.55 }}>
+                          No link
+                        </button>
+                      )}
+
+                      <button className="btn" onClick={() => setSelectedProduct(null)}>
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </>
+        ) : null}
+      </div>
     </>
-  );
-}
-// CATEGORY/TAG helpers for filters
-function getCategoriesFromProduct(p: Product): string[] {
-  // categories are stored as repeated product_fields rows with key "category".
-  // API returns fields as object where duplicates become arrays.
-  const fields: any = p.fields;
-  const v = fields && typeof fields === "object" ? fields["category"] : undefined;
-
-  if (Array.isArray(v)) return v.map((x) => String(x).trim()).filter(Boolean);
-  if (typeof v === "string") {
-    // allow "A|B" or "A,B" in legacy data
-    const s = v.trim();
-    if (!s) return [];
-    if (s.includes("|") || s.includes(",")) {
-      return s
-        .split(/[|,]/g)
-        .map((x) => x.trim())
-        .filter(Boolean);
-    }
-    return [s];
-  }
-  return [];
-}
-
-function getTagsFromProduct(p: Product): string[] {
-  const tags = Array.isArray(p.tags) ? p.tags : [];
-  return tags.map((t) => String(t).trim()).filter(Boolean);
-}
-
-function PaginationBar(props: {
-  page: number;
-  totalPages: number;
-  onPage: (p: number) => void;
-  disabled?: boolean;
-}) {
-  const { page, totalPages, onPage, disabled } = props;
-
-  const canPrev = !disabled && page > 1;
-  const canNext = !disabled && page < totalPages;
-
-  const jump = (p: number) => {
-    const next = Math.min(Math.max(1, p), totalPages);
-    onPage(next);
-  };
-
-  // show a compact window around current page
-  const windowSize = 5;
-  const start = Math.max(1, page - Math.floor(windowSize / 2));
-  const end = Math.min(totalPages, start + windowSize - 1);
-  const pages: number[] = [];
-  for (let i = start; i <= end; i++) pages.push(i);
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        flexWrap: "wrap",
-      }}
-    >
-      <div style={{ color: "var(--muted)", fontSize: 13 }}>
-        Page <b style={{ color: "var(--text)" }}>{page}</b> / {totalPages}
-      </div>
-
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <button className="btn" disabled={!canPrev} onClick={() => jump(1)}>
-          « First
-        </button>
-        <button className="btn" disabled={!canPrev} onClick={() => jump(page - 1)}>
-          ‹ Prev
-        </button>
-
-        {pages.map((p) => (
-          <button
-            key={p}
-            className={p === page ? "btn btnPrimary" : "btn"}
-            onClick={() => jump(p)}
-            disabled={disabled}
-            style={{ paddingInline: 12 }}
-          >
-            {p}
-          </button>
-        ))}
-
-        <button className="btn" disabled={!canNext} onClick={() => jump(page + 1)}>
-          Next ›
-        </button>
-        <button className="btn" disabled={!canNext} onClick={() => jump(totalPages)}>
-          Last »
-        </button>
-      </div>
-    </div>
   );
 }
