@@ -1,177 +1,64 @@
-import { useEffect, useRef, useState } from "react";
-import bs58 from "bs58";
-import { useWallet } from "@solana/wallet-adapter-react";
-import { AppHeader } from "../components/AppHeader";
-import { apiFetch } from "../lib/api";
+import express from "express";
+import cors from "cors";
+import { getGateConfig } from "./gate/gate.js";
+import { getUsdPriceFromCoinGecko } from "./gate/coingecko.js";
 
-export default function Home() {
-  const wallet = useWallet();
+const app = express();
 
-  const [status, setStatus] = useState<string>(
-    "Connect your wallet to access the catalog."
-  );
-  const [loading, setLoading] = useState(false);
+app.use(cors());
+app.use(express.json());
 
-  // Prevent repeated auth loops
-  const authInFlightRef = useRef(false);
-  const lastAuthedPubkeyRef = useRef<string | null>(null);
+app.get("/health", (_req, res) => res.json({ ok: true }));
 
-  // ✅ If JWT exists, validate it first. Only then redirect to /catalog.
-  useEffect(() => {
-    (async () => {
-      const token =
-        typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
+// Public gate preview (used by homepage to show token price + required amount)
+app.get("/gate/preview", async (_req, res) => {
+  try {
+    const cfg = await getGateConfig();
+    if (!cfg) return res.status(500).json({ error: "gate_config not initialized" });
 
-      if (!token) return;
+    const enabled = !!cfg.enabled;
+    const mode = cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none";
 
+    let priceUsd: number | null = null;
+    let requiredTokens: number | null = null;
+    let requiredUsd: number | null = null;
+
+    async function fetchPrice(): Promise<number> {
+      return await getUsdPriceFromCoinGecko({
+        mode: cfg.coingecko_mode,
+        coinId: cfg.coingecko_coin_id,
+        platform: cfg.coingecko_platform || "solana",
+        tokenAddress: (cfg.coingecko_token_address || cfg.mint_address || "").trim(),
+      });
+    }
+
+    if (mode === "usd") {
+      priceUsd = await fetchPrice();
+      requiredUsd = Number(cfg.min_usd);
+      if (Number.isFinite(requiredUsd) && priceUsd > 0) requiredTokens = requiredUsd / priceUsd;
+    } else if (mode === "amount") {
+      requiredTokens = Number(cfg.min_amount);
+      if (!Number.isFinite(requiredTokens)) requiredTokens = null;
       try {
-        // If this succeeds, token is valid
-        await apiFetch("/products", { method: "GET" }, token);
-        window.location.href = "/catalog";
+        priceUsd = await fetchPrice();
+        if (priceUsd > 0 && requiredTokens !== null) requiredUsd = requiredTokens * priceUsd;
       } catch {
-        // Token invalid/expired → remove it and stay on home
-        localStorage.removeItem("user_jwt");
+        // ignore
       }
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!wallet.connected) {
-      authInFlightRef.current = false;
-      lastAuthedPubkeyRef.current = null;
-      setLoading(false);
-      setStatus("Connect your wallet to access the catalog.");
-      return;
     }
 
-    if (!wallet.publicKey) return;
-
-    if (!wallet.signMessage) {
-      setStatus(
-        "Your wallet does not support message signing. Please use Phantom."
-      );
-      return;
-    }
-
-    const pubkey = wallet.publicKey.toBase58();
-
-    if (lastAuthedPubkeyRef.current === pubkey) return;
-    if (authInFlightRef.current) return;
-
-    (async () => {
-      authInFlightRef.current = true;
-
-      try {
-        setLoading(true);
-        setStatus("Requesting nonce…");
-
-        const { message } = await apiFetch(`/auth/nonce?pubkey=${pubkey}`, {
-          method: "GET",
-        });
-
-        setStatus("Signing message…");
-        const sig = await wallet.signMessage(new TextEncoder().encode(message));
-        const signatureBase58 = bs58.encode(sig);
-
-        setStatus("Verifying token gate…");
-        const out = await apiFetch(`/auth/verify`, {
-          method: "POST",
-          body: JSON.stringify({
-            pubkey,
-            signature: signatureBase58,
-            message,
-          }),
-        });
-
-        localStorage.setItem("user_jwt", out.token);
-        lastAuthedPubkeyRef.current = pubkey;
-
-        setStatus("Access granted. Redirecting…");
-        window.location.href = "/catalog";
-      } catch (e: any) {
-        lastAuthedPubkeyRef.current = null;
-
-        // ✅ If backend says invalid/unauthorized, wipe token so user can retry cleanly
-        const msg = (e?.message || "Authentication failed").toString();
-        if (msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("invalid token")) {
-          localStorage.removeItem("user_jwt");
-        }
-
-        setStatus(msg);
-      } finally {
-        authInFlightRef.current = false;
-        setLoading(false);
-      }
-    })();
-  }, [wallet.connected, wallet.publicKey, wallet.signMessage]);
-
-  return (
-    <>
-      <AppHeader />
-
-      <div className="container">
-        <div className="card" style={{ padding: 22 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr .8fr",
-              gap: 18,
-              alignItems: "center",
-            }}
-          >
-            <div>
-              <h1 style={{ margin: 0, fontSize: 34, letterSpacing: -0.5 }}>
-                uTrade Bot Catalog
-              </h1>
-
-              <p
-                style={{
-                  marginTop: 10,
-                  color: "var(--muted)",
-                  lineHeight: 1.5,
-                }}
-              >
-                Connect your wallet using the button above to unlock the catalog.
-              </p>
-
-              <div className="badge" style={{ marginTop: 16 }}>
-                <span
-                  className="badgeDot"
-                  style={{
-                    background: loading
-                      ? "var(--brand)"
-                      : "rgba(232,238,247,.35)",
-                  }}
-                />
-                {loading ? "Working…" : status}
-              </div>
-            </div>
-
-            <div
-              className="card"
-              style={{
-                padding: 18,
-                background: "rgba(255,193,7,.08)",
-                borderColor: "rgba(255,193,7,.25)",
-              }}
-            >
-              <div style={{ fontWeight: 800 }}>How it works</div>
-              <ol
-                style={{
-                  margin: "10px 0 0 18px",
-                  color: "var(--muted)",
-                  lineHeight: 1.6,
-                }}
-              >
-                <li>Connect wallet (top right)</li>
-                <li>Sign a message</li>
-                <li>We verify token balance/value</li>
-                <li>Catalog unlocks automatically</li>
-              </ol>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
+    return res.json({
+      enabled,
+      mode,
+      mint_address: cfg.mint_address || "",
+      min_amount: cfg.min_amount !== null ? Number(cfg.min_amount) : null,
+      min_usd: cfg.min_usd !== null ? Number(cfg.min_usd) : null,
+      tolerance_percent: Number(cfg.tolerance_percent ?? 2),
+      priceUsd,
+      requiredUsd,
+      requiredTokens,
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e?.message || "Failed" });
+  }
+});
