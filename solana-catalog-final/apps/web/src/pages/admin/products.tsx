@@ -30,6 +30,7 @@ export default function AdminProductsList() {
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [sort, setSort] = useState<"newest" | "oldest" | "az" | "za">("newest");
 
   const token =
     typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
@@ -39,33 +40,39 @@ export default function AdminProductsList() {
     const s = qp("search");
     const p = qpNum("page", 1);
     const ps = qpNum("pageSize", 20);
-
+    const so = qp("sort");
     if (s) setSearch(s);
     setPage(p);
     setPageSize(Math.min(50, ps)); // backend caps anyway
+    if (so === "newest" || so === "oldest" || so === "az" || so === "za") {
+      setSort(so);
+    }
   }, []);
 
-  function syncUrl(next: { search?: string; page?: number; pageSize?: number }) {
+  function syncUrl(next: { search?: string; page?: number; pageSize?: number; sort?: string }) {
     if (typeof window === "undefined") return;
     const u = new URL(window.location.href);
 
     const s = next.search ?? search;
     const p = next.page ?? page;
     const ps = next.pageSize ?? pageSize;
+    const so = next.sort ?? sort;
 
     if (s) u.searchParams.set("search", s);
     else u.searchParams.delete("search");
 
     u.searchParams.set("page", String(p));
     u.searchParams.set("pageSize", String(ps));
+    u.searchParams.set("sort", so);
 
     window.history.replaceState({}, "", u.toString());
   }
 
-  async function load(opts?: { page?: number; pageSize?: number; search?: string }) {
+  async function load(opts?: { page?: number; pageSize?: number; search?: string; sort?: "newest" | "oldest" | "az" | "za" }) {
     const p = opts?.page ?? page;
     const ps = opts?.pageSize ?? pageSize;
     const s = opts?.search ?? search;
+    const so = opts?.sort ?? sort;
 
     setErr("");
     setLoading(true);
@@ -75,12 +82,13 @@ export default function AdminProductsList() {
       if (s) params.set("search", s);
       params.set("page", String(p));
       params.set("pageSize", String(ps));
+      params.set("sort", so);
 
       const out = await apiFetch(`/admin/products?${params.toString()}`, { method: "GET" }, token);
       setItems(Array.isArray(out) ? out : []);
 
       // keep URL in sync
-      syncUrl({ search: s, page: p, pageSize: ps });
+      syncUrl({ search: s, page: p, pageSize: ps, sort: so });
     } catch (e: any) {
       setErr(e?.message || "Failed");
     } finally {
@@ -91,9 +99,9 @@ export default function AdminProductsList() {
   useEffect(() => {
     // initial load after URL init
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    load({ page, pageSize, search });
+    load({ page, pageSize, search, sort });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, pageSize]);
+  }, [page, pageSize, sort]);
 
   const canPrev = page > 1;
   // Backend currently returns only rows (no total). We infer "hasNext" by a full page.
@@ -106,6 +114,28 @@ export default function AdminProductsList() {
     return `Showing ${from}–${to}`;
   }, [items.length, page, pageSize]);
 
+  const sortedItems = useMemo(() => {
+    let sorted = [...items];
+    if (sort === "az") {
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+    } else if (sort === "za") {
+      sorted.sort((a, b) => b.title.localeCompare(a.title));
+    } else if (sort === "newest") {
+      sorted.sort((a, b) => {
+        const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return tb - ta;
+      });
+    } else if (sort === "oldest") {
+      sorted.sort((a, b) => {
+        const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+        const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+        return ta - tb;
+      });
+    }
+    return sorted;
+  }, [items, sort]);
+
   async function doDelete(p: ProductRow) {
     if (!confirm(`Delete product "${p.title}"?`)) return;
     setErr("");
@@ -117,7 +147,7 @@ export default function AdminProductsList() {
       if (isLastOnPage && page > 1) {
         setPage(page - 1);
       } else {
-        await load({ page, pageSize, search });
+        await load({ page, pageSize, search, sort });
       }
     } catch (e: any) {
       setErr(e?.message || "Delete failed");
@@ -143,12 +173,29 @@ export default function AdminProductsList() {
               className="btn"
               onClick={() => {
                 setPage(1);
-                load({ page: 1, pageSize, search });
+                load({ page: 1, pageSize, search, sort });
               }}
               disabled={loading}
             >
               {loading ? "Loading…" : "Search"}
             </button>
+
+            <select
+              className="input"
+              value={sort}
+              onChange={(e) => {
+                const val = e.target.value as "newest" | "oldest" | "az" | "za";
+                setSort(val);
+                setPage(1);
+              }}
+              style={{ width: 140 }}
+              title="Sort"
+            >
+              <option value="newest">Newest</option>
+              <option value="oldest">Oldest</option>
+              <option value="az">A → Z</option>
+              <option value="za">Z → A</option>
+            </select>
 
             <select
               className="input"
@@ -231,7 +278,7 @@ export default function AdminProductsList() {
               </tr>
             </thead>
             <tbody>
-              {items.map((p) => (
+              {sortedItems.map((p) => (
                 <tr key={p.id}>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>{p.title}</td>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>{p.status}</td>
