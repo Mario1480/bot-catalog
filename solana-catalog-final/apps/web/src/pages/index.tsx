@@ -161,26 +161,27 @@ export default function Home() {
                 Beta Version
               </p>
 
-              <div className="badge" style={{ marginTop: 16 }}>
-                <span
-                  className="badgeDot"
-                  style={{
-                    background: loading ? "var(--brand)" : "rgba(232,238,247,.35)",
+              <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <div className="badge">
+                  <span
+                    className="badgeDot"
+                    style={{
+                      background: loading ? "var(--brand)" : "rgba(232,238,247,.35)",
+                    }}
+                  />
+                  {loading ? "Working…" : status}
+                </div>
+                <button
+                  className={`btn btnPrimary ${hasValidSession ? "" : "btnDisabled"}`}
+                  disabled={!hasValidSession}
+                  onClick={() => {
+                    if (!hasValidSession) return;
+                    void router.push("/catalog");
                   }}
-                />
-                {loading ? "Working…" : status}
+                >
+                  {hasValidSession ? "Access Bot Catalog" : "No Access"}
+                </button>
               </div>
-              <button
-                className={`btn btnPrimary ${hasValidSession ? "" : "btnDisabled"}`}
-                style={{ marginTop: 12 }}
-                disabled={!hasValidSession}
-                onClick={() => {
-                  if (!hasValidSession) return;
-                  void router.push("/catalog");
-                }}
-              >
-                {hasValidSession ? "Access Bot Catalog" : "No Access"}
-              </button>
             </div>
 
             <div style={{ display: "grid", gap: 12 }}>
