@@ -276,6 +276,8 @@ export default function CatalogPage() {
       setProducts([]);
       setLoading(false);
       setErr("Missing session. Please connect your wallet to access the catalog.");
+
+      // IMPORTANT: no redirect here. Stay on this page and show the reconnect UI.
       return;
     }
 
@@ -308,6 +310,24 @@ export default function CatalogPage() {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // If the wallet disconnects and another page clears user_jwt, stay here and show the reconnect UI.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== "user_jwt") return;
+
+      const jwt = localStorage.getItem("user_jwt");
+      if (!jwt) {
+        setProducts([]);
+        setErr("Session ended. Please reconnect your wallet on the start page.");
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   // Fetch public gate preview info for UX display
