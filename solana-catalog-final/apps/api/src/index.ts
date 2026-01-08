@@ -7,8 +7,7 @@ import { env } from "./env.js";
 import { initRedis } from "./redis.js";
 import { makeNonce, upsertNonce, consumeNonce } from "./auth/nonce.js";
 import { verifySignature } from "./auth/verify.js";
-import { decideGate } from "./gate/gate.js";
-import { getGateConfig } from "./gate/gate.js";
+import { decideGate, getGateConfig } from "./gate/gate.js";
 import { getUsdPriceFromCoinGecko } from "./gate/coingecko.js";
 import { signUserJwt } from "./auth/jwt.js";
 
@@ -42,7 +41,7 @@ const corsOptions: cors.CorsOptions = {
     const o = origin.replace(/\/$/, "");
     const ok = allowedOrigins.some((x) => x.replace(/\/$/, "") === o);
 
-    // IMPORTANT: reject properly so browser sees a CORS error (not a silent missing header)
+    // IMPORTANT: respond with a hard error so the browser blocks the call (instead of silently omitting headers)
     if (!ok) return cb(new Error("Not allowed by CORS"));
 
     return cb(null, true);
@@ -51,7 +50,7 @@ const corsOptions: cors.CorsOptions = {
   credentials: true,
 
   // Preflight must allow these headers (Authorization important!)
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept"],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 };
 
