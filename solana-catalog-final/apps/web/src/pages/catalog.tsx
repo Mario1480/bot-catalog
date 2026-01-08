@@ -150,6 +150,26 @@ export default function CatalogPage() {
   // ✅ Modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  // responsive layout
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 860px)");
+    const apply = () => setIsMobile(!!mq.matches);
+    apply();
+
+    // Safari compatibility
+    if (typeof mq.addEventListener === "function") {
+      mq.addEventListener("change", apply);
+      return () => mq.removeEventListener("change", apply);
+    }
+    // @ts-ignore
+    mq.addListener(apply);
+    // @ts-ignore
+    return () => mq.removeListener(apply);
+  }, []);
+
   // Helper to fetch all products across paginated responses
   async function fetchAllProducts(jwt: string): Promise<Product[]> {
     const pageSize = 200;
@@ -357,8 +377,24 @@ export default function CatalogPage() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 16 }}>
-          <aside className="card" style={{ padding: 16, height: "fit-content", position: "sticky", top: 88 }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: isMobile ? "1fr" : "280px 1fr",
+            gap: 16,
+            alignItems: "start",
+          }}
+        >
+          <aside
+            className="card"
+            style={{
+              padding: 16,
+              height: "fit-content",
+              position: isMobile ? "static" : "sticky",
+              top: isMobile ? undefined : 88,
+              order: isMobile ? 2 : 0,
+            }}
+          >
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
             <input className="input" placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
 
@@ -406,7 +442,7 @@ export default function CatalogPage() {
             </div>
           </aside>
 
-          <main>
+          <main style={{ order: isMobile ? 1 : 0 }}>
             {err && (
               <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
                 <div style={{ fontWeight: 900 }}>Error</div>
@@ -423,13 +459,22 @@ export default function CatalogPage() {
               </div>
             ) : (
               <>
-                <PaginationBar
-                  page={page}
-                  totalPages={totalPages}
-                  onPage={setPage}
-                  disabled={loading || filtered.length === 0}
-                />
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+                <div style={{ marginBottom: 14 }}>
+                  <PaginationBar
+                    page={page}
+                    totalPages={totalPages}
+                    onPage={setPage}
+                    disabled={loading || filtered.length === 0}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+                    gap: 14,
+                  }}
+                >
                   {paged.map((p) => {
                     const img = resolveImageSrc(p.image_url || p.imageUrl || "");
                     const link = resolveLink(p.target_url || p.linkUrl || "");
@@ -479,7 +524,7 @@ export default function CatalogPage() {
                     );
                   })}
                 </div>
-                <div style={{ marginTop: 14 }}>
+                <div style={{ marginTop: 18 }}>
                   <PaginationBar
                     page={page}
                     totalPages={totalPages}
@@ -651,12 +696,20 @@ function PaginationBar(props: {
   for (let i = start; i <= end; i++) pages.push(i);
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap",
+      }}
+    >
       <div style={{ color: "var(--muted)", fontSize: 13 }}>
         Page <b style={{ color: "var(--text)" }}>{page}</b> / {totalPages}
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button className="btn" disabled={!canPrev} onClick={() => jump(1)}>
           « First
         </button>
