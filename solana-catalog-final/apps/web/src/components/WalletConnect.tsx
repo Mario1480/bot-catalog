@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
@@ -9,12 +9,10 @@ function notifyJwtChanged() {
 }
 
 function getApiBase() {
-  // gleich wie bei dir sonst auch
   return (process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip").replace(/\/$/, "");
 }
 
 function toBase64(u8: Uint8Array) {
-  // browser-safe
   let s = "";
   for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
   return btoa(s);
@@ -26,11 +24,20 @@ export function WalletConnect() {
   const [busy, setBusy] = useState(false);
   const [lastErr, setLastErr] = useState<string>("");
 
+  const pubkey = useMemo(() => {
+    try {
+      return wallet.publicKey?.toBase58?.() || "";
+    } catch {
+      return "";
+    }
+  }, [wallet.publicKey]);
+
+  // guards
   const prevConnectedRef = useRef<boolean>(false);
   const inflightRef = useRef<boolean>(false);
-  const lastPubkeyRef = useRef<string>("");
+  const lastLoginForPubkeyRef = useRef<string>("");
 
-  // Only clear JWT on a REAL disconnect transition (connected -> disconnected)
+  // Clear JWT only on a real disconnect transition (connected -> disconnected)
   useEffect(() => {
     if (typeof window === "undefined") return;
 
@@ -38,31 +45,28 @@ export function WalletConnect() {
     const now = !!wallet.connected;
     prevConnectedRef.current = now;
 
-    // transition: connected -> disconnected
     if (prev && !now) {
       try {
         localStorage.removeItem("user_jwt");
         localStorage.removeItem("user_pubkey");
       } catch {}
-      lastPubkeyRef.current = "";
+      lastLoginForPubkeyRef.current = "";
+      setLastErr("");
       notifyJwtChanged();
     }
   }, [wallet.connected]);
 
-  // Perform login (nonce -> signMessage -> verify) when connected and JWT missing/outdated
+  // Perform login exactly once per connect+pubkey if JWT missing
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const pubkey = wallet.publicKey?.toBase58?.() || "";
+    const connected = !!wallet.connected;
     const canSign = typeof wallet.signMessage === "function";
 
-    // not ready
-    if (!wallet.connected || !pubkey || !canSign) return;
+    if (!connected || !pubkey || !canSign) return;
 
-    // avoid duplicate parallel calls (also avoids React strict-mode double effect)
-    if (inflightRef.current) return;
-
-    const api = getApiBase();
+    // If we already attempted login for this pubkey during this connection, don't re-run.
+    if (lastLoginForPubkeyRef.current === pubkey) return;
 
     const readJwt = () => {
       try {
@@ -79,51 +83,56 @@ export function WalletConnect() {
       }
     };
 
-    const currentJwt = readJwt();
     const storedPubkey = readStoredPubkey();
 
-    // If wallet changed vs stored, wipe old jwt (so we re-login for the new wallet)
+    // wallet changed -> drop old jwt
     if (storedPubkey && storedPubkey !== pubkey) {
       try {
         localStorage.removeItem("user_jwt");
-        localStorage.setItem("user_pubkey", pubkey);
       } catch {}
     }
 
-    // If we already have jwt + same pubkey, do nothing
-    if (currentJwt && (storedPubkey === pubkey || !storedPubkey)) {
-      // ensure pubkey is stored
-      try {
-        localStorage.setItem("user_pubkey", pubkey);
-      } catch {}
-      lastPubkeyRef.current = pubkey;
+    // Always store current pubkey
+    try {
+      localStorage.setItem("user_pubkey", pubkey);
+    } catch {}
+
+    const existingJwt = readJwt();
+    if (existingJwt) {
+      // already authenticated
+      lastLoginForPubkeyRef.current = pubkey;
+      setLastErr("");
+      notifyJwtChanged();
       return;
     }
 
-    // Start login
+    // Avoid parallel/double runs
+    if (inflightRef.current) return;
     inflightRef.current = true;
+    lastLoginForPubkeyRef.current = pubkey;
+
     setBusy(true);
     setLastErr("");
 
+    const api = getApiBase();
+
     (async () => {
       try {
-        // 1) get nonce + message
+        // 1) nonce + message
         const nonceRes = await fetch(`${api}/auth/nonce?pubkey=${encodeURIComponent(pubkey)}`, {
           method: "GET",
         });
         const nonceJson = await nonceRes.json().catch(() => ({} as any));
-        if (!nonceRes.ok) {
-          throw new Error(nonceJson?.error || `Nonce failed (${nonceRes.status})`);
-        }
+        if (!nonceRes.ok) throw new Error(nonceJson?.error || `Nonce failed (${nonceRes.status})`);
 
         const message = String(nonceJson?.message || "");
         if (!message) throw new Error("Nonce message missing");
 
-        // 2) sign message
+        // 2) sign
         const encoded = new TextEncoder().encode(message);
         const sig = await wallet.signMessage!(encoded);
 
-        // 3) verify signature -> get jwt
+        // 3) verify
         const verifyRes = await fetch(`${api}/auth/verify`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -136,7 +145,6 @@ export function WalletConnect() {
 
         const verifyJson = await verifyRes.json().catch(() => ({} as any));
         if (!verifyRes.ok) {
-          // 403 = token gating denied (wichtige UX)
           const hint =
             verifyRes.status === 403
               ? "Access denied by token gating. Please hold the required amount and try again."
@@ -152,34 +160,40 @@ export function WalletConnect() {
           localStorage.setItem("user_pubkey", pubkey);
         } catch {}
 
-        lastPubkeyRef.current = pubkey;
+        setLastErr("");
         notifyJwtChanged();
       } catch (e: any) {
         const msg = String(e?.message || "Wallet login failed");
         setLastErr(msg);
 
-        // if login fails, ensure no stale jwt remains
+        // IMPORTANT: only clear jwt if there isn't one already (prevents wiping a token due to a second effect)
         try {
-          localStorage.removeItem("user_jwt");
+          const existing = localStorage.getItem("user_jwt") || "";
+          if (!existing) localStorage.removeItem("user_jwt");
           localStorage.setItem("user_pubkey", pubkey);
         } catch {}
+
         notifyJwtChanged();
+
+        // allow a manual retry by re-connecting (or refresh) without looping sign prompts
+        lastLoginForPubkeyRef.current = pubkey;
       } finally {
         inflightRef.current = false;
         setBusy(false);
       }
     })();
-  }, [wallet.connected, wallet.publicKey, wallet.signMessage]);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.connected, pubkey]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
       <WalletMultiButton className="btn btnPrimary" />
 
-      {/* Optional: small status text (helps debugging, can remove later) */}
       {busy ? (
         <div style={{ fontSize: 12, opacity: 0.8 }}>Signing in…</div>
       ) : lastErr ? (
-        <div style={{ fontSize: 12, color: "rgba(255,80,80,.9)", maxWidth: 320, textAlign: "right" }}>
+        <div style={{ fontSize: 12, color: "rgba(255,80,80,.9)", maxWidth: 360, textAlign: "right" }}>
           {lastErr}
         </div>
       ) : null}
