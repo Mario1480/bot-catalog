@@ -1,10 +1,8 @@
 import { useEffect, useRef } from "react";
-import { useRouter } from "next/router";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
 export function WalletConnect() {
-  const router = useRouter();
   const { connected } = useWallet();
 
   // Track previous connection state
@@ -19,13 +17,8 @@ export function WalletConnect() {
       try {
         localStorage.removeItem("user_jwt");
       } catch {}
-
-      // If user is on gated catalog, send them home
-      if (router.pathname.startsWith("/catalog")) {
-        router.push("/");
-      }
     }
-  }, [connected, router]);
+  }, [connected]);
 
   return (
     <div style={{ display: "flex", alignItems: "center" }}>
