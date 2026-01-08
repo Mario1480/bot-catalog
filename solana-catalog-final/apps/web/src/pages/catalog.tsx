@@ -182,6 +182,12 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // Track auth session (same-tab safe). localStorage changes do NOT trigger re-render by default.
+  const [jwt, setJwt] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("user_jwt");
+  });
+
   // Helper: explicit navigation to start page (for reconnect button)
   function goBackToStart() {
     window.location.href = "/";
@@ -270,14 +276,12 @@ export default function CatalogPage() {
   }
 
   useEffect(() => {
-    const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
-
     if (!jwt) {
+      // Immediately hide gated content when session disappears (disconnect/logout)
       setProducts([]);
+      setSelectedProduct(null);
       setLoading(false);
-      setErr("Missing session. Please connect your wallet to access the catalog.");
-
-      // IMPORTANT: no redirect here. Stay on this page and show the reconnect UI.
+      setErr("Please connect your wallet to view the catalog.");
       return;
     }
 
@@ -290,44 +294,70 @@ export default function CatalogPage() {
         setProducts(items);
       } catch (e: any) {
         const msg = (e?.message || "Failed to load products").toString();
-        setErr(msg);
 
+        // If auth/gate fails: clear session + immediately hide content
         if (isAuthErrorMessage(msg)) {
           try {
             localStorage.removeItem("user_jwt");
           } catch {}
+          setJwt(null);
           setProducts([]);
+          setSelectedProduct(null);
+          setLoading(false);
           setErr("Session expired. Please reconnect your wallet on the start page.");
           return;
         }
 
-        // Token-gate / access-denied style errors
-        if (msg.toLowerCase().includes("forbidden") || msg.toLowerCase().includes("status 403") || msg.toLowerCase().includes("gate")) {
-          setErr(msg);
-          return;
-        }
+        setErr(msg);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [jwt]);
 
-  // If the wallet disconnects and another page clears user_jwt, stay here and show the reconnect UI.
+  // Keep `jwt` state in sync with localStorage.
+  // - "storage" handles other tabs
+  // - "user_jwt_changed" is a custom same-tab event fired by our WalletConnect on connect/disconnect
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== "user_jwt") return;
-
-      const jwt = localStorage.getItem("user_jwt");
-      if (!jwt) {
-        setProducts([]);
-        setErr("Session ended. Please reconnect your wallet on the start page.");
+    const readJwt = () => {
+      try {
+        const next = localStorage.getItem("user_jwt");
+        setJwt((prev) => (prev === next ? prev : next));
+      } catch {
+        setJwt(null);
       }
     };
 
+    const onStorage = (e: StorageEvent) => {
+      if (e.key && e.key !== "user_jwt") return;
+      readJwt();
+    };
+
+    const onJwtChanged = () => readJwt();
+
+    const onFocus = () => readJwt();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") readJwt();
+    };
+
+    // Initial sync
+    readJwt();
+
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    // @ts-ignore - custom event
+    window.addEventListener("user_jwt_changed", onJwtChanged);
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      // @ts-ignore - custom event
+      window.removeEventListener("user_jwt_changed", onJwtChanged);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   // Fetch public gate preview info for UX display
@@ -585,7 +615,16 @@ export default function CatalogPage() {
                   <button className="btn btnPrimary" onClick={goBackToStart}>
                     Reconnect wallet
                   </button>
-                  <button className="btn" onClick={() => window.location.reload()}>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      try {
+                        setJwt(localStorage.getItem("user_jwt"));
+                      } catch {
+                        setJwt(null);
+                      }
+                    }}
+                  >
                     Retry
                   </button>
                   <button className="btn" onClick={() => setErr("")}>Dismiss</button>
