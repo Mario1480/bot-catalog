@@ -72,6 +72,27 @@ a { color: inherit; }
   }
 }
 
+.catalogGrid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+}
+
+.catalogSidebar {
+  height: fit-content;
+  position: sticky;
+  top: 88px;
+}
+
+@media (max-width: 900px) {
+  .catalogGrid {
+    grid-template-columns: 1fr;
+  }
+  .catalogSidebar {
+    position: static;
+  }
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--border);
