@@ -26,7 +26,7 @@ export default function HomePage() {
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
-      <h1 style={{ fontSize: 32, fontWeight: 900 }}>Solana Bot Catalog</h1>
+      <h1 style={{ fontSize: 32, fontWeight: 900 }}>uTrade Bot Catalog</h1>
 
       {/* Token gate info */}
       {gate?.enabled ? (
