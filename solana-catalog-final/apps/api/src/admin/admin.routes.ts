@@ -5,6 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
+import redis from "../redis.js";
 
 import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
@@ -28,7 +29,8 @@ const uploadImage = multer({
   limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
   fileFilter: (_req, file, cb) => {
     const ok = ["image/jpeg", "image/png", "image/webp"].includes(file.mimetype);
-    const done = cb as unknown as (error: Error | null, acceptFile: boolean) => void;
+    // Multer callback typing differs across versions; keep it permissive to avoid TS build errors.
+    const done = cb as unknown as (error: any, acceptFile: boolean) => void;
     done(ok ? null : new Error("Invalid image type"), ok);
   },
 });
@@ -200,6 +202,96 @@ adminRouter.get("/gate-preview", requireAdmin, async (_req, res) => {
   });
 });
 
+/* ------------------ HEALTH / STATUS ------------------ */
+adminRouter.get("/status", requireAdmin, async (_req, res) => {
+  let dbOk = false;
+  let redisOk = false;
+
+  try {
+    await query("SELECT 1 as ok");
+    dbOk = true;
+  } catch {
+    dbOk = false;
+  }
+
+  try {
+    const pong = await (redis as any).ping?.();
+    redisOk = pong === "PONG" || !!pong;
+  } catch {
+    redisOk = false;
+  }
+
+  res.json({
+    now: new Date().toISOString(),
+    node: process.version,
+    uptimeSec: Math.floor(process.uptime()),
+    dbOk,
+    redisOk,
+  });
+});
+
+/* ------------------ USER ANALYTICS (Redis counters) ------------------ */
+adminRouter.get("/user-analytics", requireAdmin, async (_req, res) => {
+  async function safeGet(key: string): Promise<number> {
+    try {
+      const v = await (redis as any).get?.(key);
+      return Number(v || 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  async function safeScard(key: string): Promise<number> {
+    try {
+      const v = await (redis as any).scard?.(key);
+      return Number(v || 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  async function readWindow(prefix: string) {
+    const [attempts, allowed, blocked, uniqueWallets] = await Promise.all([
+      safeGet(`${prefix}:attempts`),
+      safeGet(`${prefix}:allowed`),
+      safeGet(`${prefix}:blocked`),
+      safeScard(`${prefix}:wallets`),
+    ]);
+
+    return { attempts, allowed, blocked, uniqueWallets };
+  }
+
+  const [d1, d7, d30] = await Promise.all([
+    readWindow("ua:d1"),
+    readWindow("ua:d7"),
+    readWindow("ua:d30"),
+  ]);
+
+  res.json({ d1, d7, d30 });
+});
+
+/* ------------------ PRODUCTS STATS (Dashboard) ------------------ */
+adminRouter.get("/products/stats", requireAdmin, async (_req, res) => {
+  const rows = await query<any>(
+    `
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status = 'published')::int AS published,
+      COUNT(*) FILTER (WHERE status = 'draft')::int AS draft,
+      MAX(updated_at) AS last_updated
+    FROM products
+    `
+  );
+
+  const r = rows[0] || { total: 0, published: 0, draft: 0, last_updated: null };
+  res.json({
+    total: Number(r.total || 0),
+    published: Number(r.published || 0),
+    draft: Number(r.draft || 0),
+    lastUpdated: r.last_updated ? new Date(r.last_updated).toISOString() : null,
+  });
+});
+
 /* ------------------ UPLOADS ------------------ */
 adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Missing file" });
@@ -265,7 +357,7 @@ adminRouter.get("/products/export-csv", requireAdmin, async (_req, res) => {
 });
 
 /* ------------------ PRODUCTS CRUD ------------------ */
-adminRouter.get("/products/:id", requireAdmin, async (req, res) => {
+adminRouter.get("/products/:id([0-9a-fA-F-]{36})", requireAdmin, async (req, res) => {
   const id = String(req.params.id || "");
   const p = (await query<any>(`SELECT * FROM products WHERE id = $1`, [id]))[0];
   if (!p) return res.status(404).json({ error: "Not found" });
@@ -324,7 +416,7 @@ adminRouter.post("/products", requireAdmin, async (req, res) => {
   res.json({ id });
 });
 
-adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
+adminRouter.put("/products/:id([0-9a-fA-F-]{36})", requireAdmin, async (req, res) => {
   const id = String(req.params.id || "");
   const { title, description, image_url, target_url, status, fields, tags } = req.body ?? {};
   if (!title || !target_url) {
@@ -369,7 +461,7 @@ adminRouter.put("/products/:id", requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
-adminRouter.delete("/products/:id", requireAdmin, async (req, res) => {
+adminRouter.delete("/products/:id([0-9a-fA-F-]{36})", requireAdmin, async (req, res) => {
   const id = String(req.params.id || "");
   await query(`DELETE FROM product_fields WHERE product_id = $1`, [id]);
   await query(`DELETE FROM product_tags WHERE product_id = $1`, [id]);
@@ -408,7 +500,7 @@ adminRouter.post("/admins", requireAdmin, async (req, res) => {
 });
 
 // Reset password
-adminRouter.put("/admins/:id", requireAdmin, async (req: any, res) => {
+adminRouter.put("/admins/:id([0-9a-fA-F-]{36})", requireAdmin, async (req: any, res) => {
   const id = String(req.params.id || "");
   const password = String(req.body?.password ?? "");
 
@@ -431,7 +523,7 @@ adminRouter.put("/admins/:id", requireAdmin, async (req: any, res) => {
   res.json(rows[0]);
 });
 
-adminRouter.delete("/admins/:id", requireAdmin, async (req: any, res) => {
+adminRouter.delete("/admins/:id([0-9a-fA-F-]{36})", requireAdmin, async (req: any, res) => {
   const id = String(req.params.id || "");
   if (!id) return res.status(400).json({ error: "Missing id" });
 
