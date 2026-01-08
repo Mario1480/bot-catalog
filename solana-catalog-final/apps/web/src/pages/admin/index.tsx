@@ -81,10 +81,11 @@ export default function AdminDashboardPage() {
 
       try {
         // parallel laden
+        // Load all products for dashboard statistics (until a /admin/products/count endpoint exists)
         const [gateOut, catsOut, prodOut] = await Promise.all([
           apiFetch("/admin/gate-config", { method: "GET" }, token),
           apiFetch("/admin/categories?includeInactive=1", { method: "GET" }, token),
-          apiFetch("/admin/products?page=1&pageSize=200", { method: "GET" }, token),
+          apiFetch("/admin/products?page=1&pageSize=5000", { method: "GET" }, token),
         ]);
 
         setGate(gateOut || null);
