@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import bs58 from "bs58";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 
@@ -10,12 +11,6 @@ function notifyJwtChanged() {
 
 function getApiBase() {
   return (process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip").replace(/\/$/, "");
-}
-
-function toBase64(u8: Uint8Array) {
-  let s = "";
-  for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
-  return btoa(s);
 }
 
 function ssGet(key: string) {
@@ -188,6 +183,7 @@ export function WalletConnect() {
         // 2) sign
         const encoded = new TextEncoder().encode(message);
         const sig = await wallet.signMessage!(encoded);
+        const signatureBase58 = bs58.encode(sig);
 
         // 3) verify
         const verifyRes = await fetch(`${api}/auth/verify`, {
@@ -195,7 +191,7 @@ export function WalletConnect() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             pubkey,
-            signature: toBase64(sig),
+            signature: signatureBase58,
             message,
             nonce: nonceJson?.nonce,
           }),
