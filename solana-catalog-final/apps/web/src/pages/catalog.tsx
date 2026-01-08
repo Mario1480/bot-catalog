@@ -146,6 +146,52 @@ export default function CatalogPage() {
   // ✅ Modal state
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
+  // Helper to fetch all products across paginated responses
+  async function fetchAllProducts(jwt: string): Promise<Product[]> {
+    const pageSize = 200;
+    let page = 1;
+    const all: Product[] = [];
+    const seen = new Set<string>();
+
+    while (page <= 200) {
+      const qs = `?page=${page}&pageSize=${pageSize}`;
+      const out: any = await apiFetch(`/products${qs}`, { method: "GET" }, jwt);
+
+      // Support both array and object shapes
+      const items: Product[] = Array.isArray(out)
+        ? (out as Product[])
+        : Array.isArray(out?.items)
+          ? (out.items as Product[])
+          : Array.isArray(out?.products)
+            ? (out.products as Product[])
+            : [];
+
+      // If the backend ignores pagination and returns everything as an array once, we are done.
+      if (Array.isArray(out) && page === 1) return items;
+
+      if (!items.length) break;
+
+      let addedThisPage = 0;
+      for (const p of items) {
+        const id = String((p as any)?.id ?? "");
+        if (id && seen.has(id)) continue;
+        if (id) seen.add(id);
+        all.push(p);
+        addedThisPage++;
+      }
+
+      // If we didn't add anything new, stop to avoid infinite loops
+      if (addedThisPage === 0) break;
+
+      const total = Number(out?.total ?? out?.count ?? NaN);
+      if (Number.isFinite(total) && all.length >= total) break;
+
+      page++;
+    }
+
+    return all;
+  }
+
   useEffect(() => {
     const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
 
@@ -159,8 +205,7 @@ export default function CatalogPage() {
         setLoading(true);
         setErr("");
 
-        const out = await apiFetch("/products", { method: "GET" }, jwt);
-        const items = Array.isArray(out) ? out : out?.items || out?.products || [];
+        const items = await fetchAllProducts(jwt);
         setProducts(items);
       } catch (e: any) {
         const msg = (e?.message || "Failed to load products").toString();
