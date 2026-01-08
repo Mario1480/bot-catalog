@@ -23,7 +23,7 @@ export default function HomePage() {
   const [gate, setGate] = useState<GatePreview | null>(null);
   const [gateErr, setGateErr] = useState("");
 
-  const [status, setStatus] = useState<string>("Connect your wallet to access the catalog.");
+  const [status, setStatus] = useState<string>("Connect your wallet to unlock the catalog.");
   const [loading, setLoading] = useState(false);
 
   // Prevent repeated auth loops
@@ -64,7 +64,7 @@ export default function HomePage() {
       authInFlightRef.current = false;
       lastAuthedPubkeyRef.current = null;
       setLoading(false);
-      setStatus("Connect your wallet to access the catalog.");
+      setStatus("Connect your wallet to unlock the catalog.");
       return;
     }
 
@@ -125,7 +125,15 @@ export default function HomePage() {
           localStorage.removeItem("user_jwt");
         }
 
-        setStatus(msg);
+        // Make token-gate failures clearer for users
+        const lower = msg.toLowerCase();
+        if (lower.includes("insufficient") || lower.includes("not enough") || lower.includes("gate")) {
+          setStatus(
+            "Access denied by token gate. Make sure this wallet holds the required amount, then reconnect and try again."
+          );
+        } else {
+          setStatus(msg);
+        }
       } finally {
         authInFlightRef.current = false;
         setLoading(false);
@@ -210,10 +218,41 @@ export default function HomePage() {
         ) : null}
 
         {/* CTA */}
-        <div style={{ marginTop: 30 }}>
-          <Link href="/catalog" className="btn btnPrimary">
-            Open Catalog
-          </Link>
+        <div style={{ marginTop: 30, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          {(() => {
+            const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") || "" : "";
+            const gateEnabled = !!gate?.enabled;
+
+            // If gating is OFF, allow direct access.
+            if (!gateEnabled) {
+              return (
+                <Link href="/catalog" className="btn btnPrimary">
+                  Open Catalog
+                </Link>
+              );
+            }
+
+            // If gating is ON, only allow entering catalog when a JWT exists.
+            if (token) {
+              return (
+                <Link href="/catalog" className="btn btnPrimary">
+                  Open Catalog
+                </Link>
+              );
+            }
+
+            // Otherwise: show disabled button + hint.
+            return (
+              <>
+                <button className="btn btnPrimary" disabled>
+                  Open Catalog
+                </button>
+                <span style={{ fontSize: 13, color: "var(--muted)", opacity: 0.9 }}>
+                  Connect your wallet above to unlock.
+                </span>
+              </>
+            );
+          })()}
         </div>
       </main>
     </>
