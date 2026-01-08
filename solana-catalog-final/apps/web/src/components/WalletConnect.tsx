@@ -30,6 +30,17 @@ function ssRemove(key: string) {
     if (typeof window !== "undefined") window.sessionStorage.removeItem(key);
   } catch {}
 }
+function ssClearPrefix(prefix: string) {
+  try {
+    if (typeof window === "undefined") return;
+    const keys: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i++) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith(prefix)) keys.push(k);
+    }
+    for (const k of keys) window.sessionStorage.removeItem(k);
+  } catch {}
+}
 
 export function WalletConnect() {
   const wallet = useWallet();
@@ -68,18 +79,8 @@ export function WalletConnect() {
         localStorage.removeItem("user_pubkey");
       } catch {}
 
-      const pk = (() => {
-        try {
-          return localStorage.getItem("user_pubkey") || "";
-        } catch {
-          return "";
-        }
-      })();
-
-      if (pk) {
-        ssRemove(lockKey(pk));
-        ssRemove(doneKey(pk));
-      }
+      ssClearPrefix("wallet_login_lock:");
+      ssClearPrefix("wallet_login_done:");
 
       lastLoginForPubkeyRef.current = "";
       setLastErr("");
