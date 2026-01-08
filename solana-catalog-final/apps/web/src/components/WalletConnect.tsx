@@ -4,7 +4,6 @@ import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { apiBase } from "../lib/api";
 
 function u8ToBase64(u8: Uint8Array): string {
-  // Browser-safe base64 encoding
   let s = "";
   for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
   return typeof window !== "undefined" ? window.btoa(s) : "";
@@ -13,26 +12,6 @@ function u8ToBase64(u8: Uint8Array): string {
 function notifyJwtChanged() {
   try {
     window.dispatchEvent(new Event("user_jwt_changed"));
-  } catch {}
-}
-
-function getLocal(key: string): string {
-  try {
-    return localStorage.getItem(key) || "";
-  } catch {
-    return "";
-  }
-}
-
-function setLocal(key: string, val: string) {
-  try {
-    localStorage.setItem(key, val);
-  } catch {}
-}
-
-function removeLocal(key: string) {
-  try {
-    localStorage.removeItem(key);
   } catch {}
 }
 
@@ -50,40 +29,36 @@ export function WalletConnect() {
     prevConnectedRef.current = connected;
 
     if (prev && !connected) {
-      removeLocal("user_jwt");
-      removeLocal("user_pubkey");
+      try {
+        localStorage.removeItem("user_jwt");
+        localStorage.removeItem("user_pubkey");
+      } catch {}
       notifyJwtChanged();
       setErr("");
       lastPubkeyRef.current = "";
     }
   }, [connected]);
 
-  // Sign-in flow: when connected and no user_jwt yet, request nonce -> sign -> verify
+  // Sign-in flow: when connected and no valid user_jwt for this wallet, request nonce -> sign -> verify
   useEffect(() => {
     if (!connected) return;
     if (!publicKey) return;
 
     const pk = publicKey.toBase58();
 
-    // Prevent repeated prompts if already signed in for this wallet
-    const existing = getLocal("user_jwt");
-    const existingPk = getLocal("user_pubkey");
+    // If we already have a jwt for THIS pubkey, don't prompt again
+    let existingJwt = "";
+    let existingPk = "";
+    try {
+      existingJwt = localStorage.getItem("user_jwt") || "";
+      existingPk = localStorage.getItem("user_pubkey") || "";
+    } catch {}
 
-    // If we already have a token for THIS wallet, do not re-prompt for signing.
-    if (existing && existingPk === pk) {
+    if (existingJwt && existingPk === pk) {
       lastPubkeyRef.current = pk;
+      setErr("");
       return;
     }
-
-    // If there is a token but it belongs to a different wallet, clear it.
-    if (existing && existingPk && existingPk !== pk) {
-      removeLocal("user_jwt");
-      removeLocal("user_pubkey");
-      notifyJwtChanged();
-    }
-
-    // Extra guard: if we already completed sign-in in this session for this pk
-    if (lastPubkeyRef.current === pk && getLocal("user_jwt")) return;
 
     // If wallet can't sign messages, we can't authenticate
     if (!signMessage) {
@@ -124,14 +99,18 @@ export function WalletConnect() {
         const token = String(verifyJson?.token || "");
         if (!token) throw new Error("Missing token");
 
-        setLocal("user_jwt", token);
-        setLocal("user_pubkey", pk);
+        try {
+          localStorage.setItem("user_jwt", token);
+          localStorage.setItem("user_pubkey", pk);
+        } catch {}
+
         lastPubkeyRef.current = pk;
         notifyJwtChanged();
       } catch (e: any) {
-        // If anything fails, ensure we don't keep a stale token around
-        removeLocal("user_jwt");
-        removeLocal("user_pubkey");
+        try {
+          localStorage.removeItem("user_jwt");
+          localStorage.removeItem("user_pubkey");
+        } catch {}
         notifyJwtChanged();
         setErr(e?.message || "Wallet sign-in failed");
       } finally {
