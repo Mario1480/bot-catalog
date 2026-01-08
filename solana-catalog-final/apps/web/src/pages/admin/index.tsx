@@ -1,384 +1,340 @@
+// apps/web/src/pages/admin/index.tsx
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { apiFetch } from "../../lib/api";
 import { AdminLayout } from "../../components/admin/AdminLayout";
+import { apiFetch } from "../../lib/api";
 
-function isAuthErrorMessage(msg: string) {
-  const m = (msg || "").toLowerCase();
+type ProductsStats = {
+  total: number;
+  published: number;
+  draft: number;
+};
+
+type StatusResp = {
+  uptimeSec: number;
+  dbOk: boolean;
+  redisOk: boolean;
+  now: string;
+  node?: string;
+};
+
+type AnalyticsBucket = {
+  attempts: number;
+  allowed: number;
+  blocked: number;
+  uniqueWallets: number;
+};
+
+type UserAnalyticsResp = {
+  d1: AnalyticsBucket;
+  d7: AnalyticsBucket;
+  d30: AnalyticsBucket;
+};
+
+type GatePreview = {
+  enabled: boolean;
+  mode: "amount" | "usd" | "none";
+  mint_address: string;
+  min_amount: number | null;
+  min_usd: number | null;
+  tolerance_percent: number;
+  priceUsd: number | null;
+  requiredUsd: number | null;
+  requiredTokens: number | null;
+};
+
+function fmtInt(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "-";
+  return new Intl.NumberFormat().format(v);
+}
+
+function fmtUsd(n: any) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "-";
+  return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(v);
+}
+
+function fmtNum(n: any, digits = 4) {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return "-";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(v);
+}
+
+function Badge({ ok, label }: { ok: boolean; label: string }) {
   return (
-    m.includes("unauthorized") ||
-    m.includes("invalid token") ||
-    m.includes("jwt") ||
-    m.includes("token expired") ||
-    m.includes("forbidden") ||
-    m.includes("status 401") ||
-    m.includes("status 403")
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "6px 10px",
+        borderRadius: 999,
+        border: "1px solid var(--border)",
+        background: ok ? "rgba(60, 255, 160, .08)" : "rgba(255, 80, 80, .08)",
+      }}
+    >
+      <span
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: ok ? "rgba(60, 255, 160, .9)" : "rgba(255, 80, 80, .9)",
+          display: "inline-block",
+        }}
+      />
+      <span style={{ fontSize: 13, color: "var(--text)" }}>{label}</span>
+    </span>
   );
 }
 
-type GateConfig = {
-  enabled?: boolean;
-  mint_address?: string;
-  min_amount?: number | null;
-  min_usd?: number | null;
-  coingecko_mode?: string | null;
-  updated_at?: string;
-};
-
-type Category = {
-  id: string;
-  name: string;
-  sort_order: number;
-  active: boolean;
-  updated_at?: string;
-};
-
-type ProductRow = {
-  id: string;
-  title: string;
-  status: string;
-  updated_at?: string;
-};
+function StatRow({ label, value }: { label: string; value: any }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0" }}>
+      <div style={{ color: "var(--muted)", fontSize: 13 }}>{label}</div>
+      <div style={{ fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
 
 export default function AdminDashboardPage() {
-  const token =
-    typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
+  const token = typeof window !== "undefined" ? localStorage.getItem("admin_jwt") || "" : "";
 
+  const [stats, setStats] = useState<ProductsStats | null>(null);
+  const [status, setStatus] = useState<StatusResp | null>(null);
+  const [ua, setUa] = useState<UserAnalyticsResp | null>(null);
+  const [gate, setGate] = useState<GatePreview | null>(null);
+
+  const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
 
-  const [gate, setGate] = useState<GateConfig | null>(null);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [productStats, setProductStats] = useState<any>(null);
-  const [gatePreview, setGatePreview] = useState<any>(null);
-  const [gateErr, setGateErr] = useState("");
-  const [status, setStatus] = useState<any>(null);
-  const [statusErr, setStatusErr] = useState("");
-  const [analytics, setAnalytics] = useState<any>(null);
-  const [analyticsErr, setAnalyticsErr] = useState("");
-
-  async function loadGatePreview() {
-    setGateErr("");
+  async function loadAll() {
+    setErr("");
+    setLoading(true);
     try {
-      const out = await apiFetch("/admin/gate-preview", { method: "GET" }, token);
-      setGatePreview(out);
-    } catch (e: any) {
-      setGateErr(e?.message || "Failed to load gate preview");
-    }
-  }
+      const [s1, s2, s3, s4] = await Promise.all([
+        apiFetch("/admin/products/stats", { method: "GET" }, token),
+        apiFetch("/admin/status", { method: "GET" }, token),
+        apiFetch("/admin/user-analytics", { method: "GET" }, token),
+        apiFetch("/admin/gate-preview", { method: "GET" }, token),
+      ]);
 
-  async function loadStatus() {
-    setStatusErr("");
-    try {
-      const out = await apiFetch("/admin/status", { method: "GET" }, token);
-      setStatus(out);
+      setStats({
+        total: Number(s1?.total ?? 0),
+        published: Number(s1?.published ?? 0),
+        draft: Number(s1?.draft ?? 0),
+      });
+      setStatus(s2 as StatusResp);
+      setUa(s3 as UserAnalyticsResp);
+      setGate(s4 as GatePreview);
     } catch (e: any) {
-      setStatusErr(e?.message || "Failed to load status");
-    }
-  }
-
-  async function loadAnalytics() {
-    setAnalyticsErr("");
-    try {
-      const out = await apiFetch("/admin/user-analytics", { method: "GET" }, token);
-      setAnalytics(out);
-    } catch (e: any) {
-      setAnalyticsErr(e?.message || "Failed to load user analytics");
+      setErr(e?.message || "Failed to load dashboard");
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadGatePreview();
-    loadStatus();
-    loadAnalytics();
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
+  const gateSummary = useMemo(() => {
+    if (!gate) return null;
 
-    if (!token) {
-      window.location.href = "/admin/login";
-      return;
+    const enabled = gate.enabled;
+    const modeLabel = gate.mode === "usd" ? "Min USD" : gate.mode === "amount" ? "Min Tokens" : "Not set";
+
+    const price = gate.priceUsd != null ? fmtUsd(gate.priceUsd) : "-";
+
+    let req = "-";
+    if (gate.mode === "usd") {
+      req = gate.min_usd != null ? fmtUsd(gate.min_usd) : "-";
+    }
+    if (gate.mode === "amount") {
+      req = gate.min_amount != null ? fmtNum(gate.min_amount, 6) : "-";
     }
 
-    (async () => {
-      setLoading(true);
-      setErr("");
+    let requiredTokens = "-";
+    if (gate.requiredTokens != null) requiredTokens = fmtNum(gate.requiredTokens, 6);
 
-      try {
-        // parallel laden
-        // Load all products for dashboard statistics (until a /admin/products/count endpoint exists)
-        const [gateOut, catsOut, prodStatsOut] = await Promise.all([
-          apiFetch("/admin/gate-config", { method: "GET" }, token),
-          apiFetch("/admin/categories?includeInactive=1", { method: "GET" }, token),
-          apiFetch("/admin/products/stats", { method: "GET" }, token),
-        ]);
+    let requiredUsd = "-";
+    if (gate.requiredUsd != null) requiredUsd = fmtUsd(gate.requiredUsd);
 
-        setGate(gateOut || null);
-        setCategories(Array.isArray(catsOut) ? catsOut : []);
-        setProductStats(prodStatsOut || null);
-      } catch (e: any) {
-        const msg = (e?.message || "Failed to load dashboard").toString();
-        setErr(msg);
-
-        if (isAuthErrorMessage(msg)) {
-          try {
-            localStorage.removeItem("admin_jwt");
-          } catch {}
-          window.location.href = "/admin/login";
-        }
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [token]);
-
-  const stats = useMemo(() => {
-    const totalCategories = categories.length;
-    const activeCategories = categories.filter((c) => c.active).length;
-
-    const totalProducts = productStats?.total ?? 0;
-    const publishedProducts = productStats?.published ?? 0;
-    const draftProducts = productStats?.draft ?? 0;
-
-    const gateEnabled = !!gate?.enabled;
-    const gateMode =
-      gate?.min_amount != null ? "Min Amount" : gate?.min_usd != null ? "Min USD" : "Not set";
-    const gateExtra =
-      gate?.min_amount != null
-        ? `≥ ${gate.min_amount}`
-        : gate?.min_usd != null
-        ? `≥ $${gate.min_usd}`
-        : "";
-
-    return {
-      totalCategories,
-      activeCategories,
-      totalProducts,
-      publishedProducts,
-      draftProducts,
-      gateEnabled,
-      gateMode,
-      gateExtra,
-    };
-  }, [categories, productStats, gate]);
+    return { enabled, modeLabel, price, req, requiredTokens, requiredUsd };
+  }, [gate]);
 
   return (
     <AdminLayout title="Admin Dashboard">
-      <div className="container" style={{ maxWidth: 1100 }}>
-        {err ? (
-          <div
-            className="card"
-            style={{
-              padding: 14,
-              marginBottom: 14,
-              borderColor: "rgba(255,80,80,.35)",
-              background: "rgba(255,80,80,.08)",
-            }}
-          >
-            <div style={{ fontWeight: 900 }}>Error</div>
-            <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
-          </div>
-        ) : null}
+      {err ? (
+        <div
+          className="card"
+          style={{
+            padding: 14,
+            marginBottom: 14,
+            borderColor: "rgba(255,80,80,.35)",
+            background: "rgba(255,80,80,.08)",
+          }}
+        >
+          <div style={{ fontWeight: 900 }}>Error</div>
+          <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+        </div>
+      ) : null}
 
-        {loading ? (
-          <div className="card" style={{ padding: 16 }}>
-            Loading…
+      <div style={{ display: "grid", gap: 14 }}>
+        {/* Quick Actions */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Quick actions</div>
+              <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 13 }}>
+                Manage token gating, categories, products, CSV and admins.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Link className="btn" href="/admin/gate">
+                Open Token Gating
+              </Link>
+              <Link className="btn" href="/admin/categories">
+                Categories
+              </Link>
+              <Link className="btn" href="/admin/products">
+                Products
+              </Link>
+              <Link className="btn" href="/admin/csv">
+                CSV Import/Export
+              </Link>
+              <Link className="btn" href="/admin/admins">
+                Admins
+              </Link>
+              <button className="btn" onClick={loadAll} disabled={loading}>
+                {loading ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
           </div>
-        ) : (
-          <>
+
+          {gateSummary ? (
+            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <Badge ok={!!gateSummary.enabled} label={gateSummary.enabled ? "Gating enabled" : "Gating disabled"} />
+              </div>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Gate config</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>Mode: {gateSummary.modeLabel}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>Requirement: {gateSummary.req}</div>
+                </div>
+
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Token price</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>Current: {gateSummary.price}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>
+                    Needed tokens: {gateSummary.requiredTokens}
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Value preview</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13 }}>≈ {gateSummary.requiredUsd}</div>
+                  <div style={{ color: "var(--muted)", fontSize: 13, marginTop: 4 }}>
+                    (incl. tolerance handled on verify)
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Stats + Health */}
+        <div
+          style={{
+            display: "grid",
+            gap: 14,
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          }}
+        >
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Products</div>
+            {loading && !stats ? (
+              <div style={{ color: "var(--muted)" }}>Loading…</div>
+            ) : stats ? (
+              <>
+                <StatRow label="Total" value={fmtInt(stats.total)} />
+                <StatRow label="Published" value={fmtInt(stats.published)} />
+                <StatRow label="Draft" value={fmtInt(stats.draft)} />
+              </>
+            ) : (
+              <div style={{ color: "var(--muted)" }}>No data.</div>
+            )}
+          </div>
+
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ fontWeight: 900, marginBottom: 10 }}>Health / Status</div>
+            {loading && !status ? (
+              <div style={{ color: "var(--muted)" }}>Loading…</div>
+            ) : status ? (
+              <>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+                  <Badge ok={!!status.dbOk} label={status.dbOk ? "DB OK" : "DB ERROR"} />
+                  <Badge ok={!!status.redisOk} label={status.redisOk ? "Redis OK" : "Redis ERROR"} />
+                </div>
+                <StatRow label="Uptime" value={`${fmtInt(status.uptimeSec)}s`} />
+                <StatRow label="Server time" value={status.now ? new Date(status.now).toLocaleString() : "-"} />
+                <StatRow label="Node" value={status.node || "-"} />
+              </>
+            ) : (
+              <div style={{ color: "var(--muted)" }}>No data.</div>
+            )}
+          </div>
+        </div>
+
+        {/* User analytics */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>User analytics</div>
+
+          {loading && !ua ? (
+            <div style={{ color: "var(--muted)" }}>Loading…</div>
+          ) : ua ? (
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-                gap: 14,
+                gap: 12,
+                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
               }}
             >
-              {/* Gate */}
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                  <div style={{ fontWeight: 900, fontSize: 16 }}>Token Gating</div>
-                  <span
-                    className="badge"
-                    style={{
-                      background: stats.gateEnabled ? "rgba(0,255,160,.12)" : "rgba(255,80,80,.10)",
-                      borderColor: stats.gateEnabled ? "rgba(0,255,160,.25)" : "rgba(255,80,80,.25)",
-                    }}
-                  >
-                    <span className="badgeDot" />
-                    {stats.gateEnabled ? "Enabled" : "Disabled"}
-                  </span>
-                </div>
-
-                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
-                  Mode: <span style={{ color: "var(--text)" }}>{stats.gateMode}</span>{" "}
-                  {stats.gateExtra ? (
-                    <span style={{ color: "var(--text)", opacity: 0.9 }}>({stats.gateExtra})</span>
-                  ) : null}
-                </div>
-
-                <div style={{ marginTop: 12 }}>
-                  <Link className="btn btnPrimary" href="/admin/gate" style={{ width: "100%" as any }}>
-                    Open Token Gating
-                  </Link>
-                </div>
-                {gateErr ? (
-                  <div style={{ marginTop: 10, opacity: 0.85 }}>
-                    <span style={{ color: "#ff6b6b" }}>{gateErr}</span>
+              {(
+                [
+                  ["Last 24h", ua.d1],
+                  ["Last 7d", ua.d7],
+                  ["Last 30d", ua.d30],
+                ] as Array<[string, AnalyticsBucket]>
+              ).map(([label, b]) => (
+                <div key={label} className="card" style={{ padding: 12 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>{label}</div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <StatRow label="Attempts" value={fmtInt(b.attempts)} />
+                    <StatRow label="Allowed" value={fmtInt(b.allowed)} />
+                    <StatRow label="Blocked" value={fmtInt(b.blocked)} />
+                    <StatRow label="Unique wallets" value={fmtInt(b.uniqueWallets)} />
                   </div>
-                ) : gatePreview ? (
-                  <div style={{ marginTop: 10, opacity: 0.85, fontSize: 13, lineHeight: 1.4 }}>
-                    {gatePreview.priceUsd ? (
-                      <div>Price: ${Number(gatePreview.priceUsd).toFixed(6)}</div>
-                    ) : (
-                      <div>Price: (not available)</div>
-                    )}
-
-                    {gatePreview.mode === "usd" && gatePreview.requiredTokens ? (
-                      <div>
-                        Required: {Number(gatePreview.requiredTokens).toFixed(4)} tokens{" "}
-                        (≈ ${Number(gatePreview.requiredUsd || gatePreview.min_usd || 0).toFixed(2)})
-                      </div>
-                    ) : null}
-
-                    {gatePreview.mode === "amount" && gatePreview.requiredTokens ? (
-                      <div>
-                        Required: {Number(gatePreview.requiredTokens).toFixed(4)} tokens
-                        {gatePreview.requiredUsd ? (
-                          <> (≈ ${Number(gatePreview.requiredUsd).toFixed(2)})</>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>Loading price…</div>
-                )}
-              </div>
-
-              {/* Categories */}
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>Categories</div>
-                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
-                  Active: <span style={{ color: "var(--text)" }}>{stats.activeCategories}</span>
-                  <br />
-                  Total: <span style={{ color: "var(--text)" }}>{stats.totalCategories}</span>
                 </div>
-
-                <div style={{ marginTop: 12 }}>
-                  <Link className="btn" href="/admin/categories" style={{ width: "100%" as any }}>
-                    Manage Categories
-                  </Link>
-                </div>
-              </div>
-
-              {/* Products */}
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>Products</div>
-                <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13 }}>
-                  Total: <span style={{ color: "var(--text)" }}>{stats.totalProducts}</span>
-                  <br />
-                  Published: <span style={{ color: "var(--text)" }}>{stats.publishedProducts}</span>{" "}
-                  · Draft: <span style={{ color: "var(--text)" }}>{stats.draftProducts}</span>
-                </div>
-
-                <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                  <Link className="btn" href="/admin/products" style={{ width: "100%" as any }}>
-                    Open Products
-                  </Link>
-                  <Link className="btn btnPrimary" href="/admin/products-edit" style={{ width: "100%" as any }}>
-                    + Create Product
-                  </Link>
-                </div>
-              </div>
-
-              {/* Health / Status */}
-              <div className="card" style={{ padding: 16 }}>
-                <div style={{ fontWeight: 900, fontSize: 16 }}>Health / Status</div>
-
-                {statusErr ? (
-                  <div style={{ marginTop: 10, color: "#ff6b6b", fontSize: 13 }}>{statusErr}</div>
-                ) : status ? (
-                  <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
-                    <div>
-                      API: <span style={{ color: "var(--text)" }}>{"OK"}</span> · Uptime:{" "}
-                      <span style={{ color: "var(--text)" }}>{Math.floor(Number(status.uptimeSec || 0) / 60)}m</span>
-                    </div>
-                    <div>
-                      DB:{" "}
-                      <span style={{ color: "var(--text)" }}>{status.dbOk ? "OK" : "DOWN"}</span> · Redis:{" "}
-                      <span style={{ color: "var(--text)" }}>{status.redisOk ? "OK" : "DOWN"}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ marginTop: 10, opacity: 0.75, fontSize: 13 }}>Loading…</div>
-                )}
-
-                <div style={{ marginTop: 12, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-                  <div style={{ fontWeight: 800, fontSize: 13 }}>User analytics (wallet logins)</div>
-
-                  {analyticsErr ? (
-                    <div style={{ marginTop: 8, color: "#ff6b6b", fontSize: 13 }}>{analyticsErr}</div>
-                  ) : analytics ? (
-                    <div style={{ marginTop: 8, color: "var(--muted)", fontSize: 13, lineHeight: 1.5 }}>
-                      <div>
-                        24h: <span style={{ color: "var(--text)" }}>{analytics.d1?.uniqueWallets ?? 0}</span> wallets ·{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d1?.attempts ?? 0}</span> attempts · Allow{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d1?.allowed ?? 0}</span> / Block{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d1?.blocked ?? 0}</span>
-                      </div>
-                      <div>
-                        7d: <span style={{ color: "var(--text)" }}>{analytics.d7?.uniqueWallets ?? 0}</span> wallets ·{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d7?.attempts ?? 0}</span> attempts · Allow{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d7?.allowed ?? 0}</span> / Block{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d7?.blocked ?? 0}</span>
-                      </div>
-                      <div>
-                        30d: <span style={{ color: "var(--text)" }}>{analytics.d30?.uniqueWallets ?? 0}</span> wallets ·{" "}
-                        <span style={{ color: "var(--text)" }}>{analytics.d30?.attempts ?? 0}</span> attempts
-                      </div>
-                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.9 }}>
-                        Hinweis: Zählt Wallet-Login-Versuche (aus /auth/verify) seit dem letzten Deploy; Daten liegen in Redis.
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 8, opacity: 0.75, fontSize: 13 }}>Loading…</div>
-                  )}
-                </div>
-
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button className="btn" onClick={() => { loadStatus(); loadAnalytics(); }}>
-                    Refresh
-                  </button>
-                </div>
-              </div>
+              ))}
             </div>
+          ) : (
+            <div style={{ color: "var(--muted)" }}>No data.</div>
+          )}
 
-            {/* Quick actions */}
-            <div className="card" style={{ padding: 16, marginTop: 14 }}>
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>Quick actions</div>
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Link className="btn" href="/admin/admins">
-                  Admins
-                </Link>
-                <Link className="btn" href="/admin/csv">
-                  CSV Import/Export
-                </Link>
-                <button
-                  className="btn"
-                  onClick={() => {
-                    try {
-                      localStorage.removeItem("admin_jwt");
-                    } catch {}
-                    window.location.href = "/admin/login";
-                  }}
-                >
-                  Logout
-                </button>
-              </div>
-            </div>
-          </>
-        )}
+          <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
+            Tip: These counters are updated during wallet verify (attempts/allowed/blocked + unique wallets via Redis HLL).
+          </div>
+        </div>
       </div>
     </AdminLayout>
   );
