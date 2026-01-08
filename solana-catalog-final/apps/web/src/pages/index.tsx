@@ -1,5 +1,6 @@
 // apps/web/src/pages/index.tsx
 import { useEffect, useState } from "react";
+import { useRouter } from "next/router";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AppHeader } from "../components/AppHeader";
 import { apiFetch } from "../lib/api";
@@ -24,6 +25,7 @@ type GatePreview = {
 
 export default function Home() {
   const wallet = useWallet();
+  const router = useRouter();
 
   const [status, setStatus] = useState("Connect your wallet to access the catalog.");
   const [loading, setLoading] = useState(false);
@@ -180,7 +182,7 @@ export default function Home() {
                   className="btn btnPrimary"
                   style={{ marginTop: 12, width: "fit-content" }}
                   onClick={() => {
-                    window.location.href = "/catalog";
+                    void router.push("/catalog");
                   }}
                 >
                   Access Bot Catalog
