@@ -153,19 +153,12 @@ export default function Home() {
 
       <div className="container">
         <div className="card" style={{ padding: 22 }}>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1.2fr .8fr",
-              gap: 18,
-              alignItems: "start",
-            }}
-          >
+          <div className="homeGrid">
             <div>
               <h1 style={{ margin: 0, fontSize: 34, letterSpacing: -0.5 }}>uTrade Bot Catalog</h1>
 
               <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.5 }}>
-                Connect your wallet using the button above to unlock the catalog.
+                Beta Version
               </p>
 
               <div className="badge" style={{ marginTop: 16 }}>
@@ -177,17 +170,17 @@ export default function Home() {
                 />
                 {loading ? "Working…" : status}
               </div>
-              {hasValidSession ? (
-                <button
-                  className="btn btnPrimary"
-                  style={{ marginTop: 12, width: "fit-content" }}
-                  onClick={() => {
-                    void router.push("/catalog");
-                  }}
-                >
-                  Access Bot Catalog
-                </button>
-              ) : null}
+              <button
+                className={`btn btnPrimary ${hasValidSession ? "" : "btnDisabled"}`}
+                style={{ marginTop: 12 }}
+                disabled={!hasValidSession}
+                onClick={() => {
+                  if (!hasValidSession) return;
+                  void router.push("/catalog");
+                }}
+              >
+                {hasValidSession ? "Access Bot Catalog" : "No Access"}
+              </button>
             </div>
 
             <div style={{ display: "grid", gap: 12 }}>
@@ -219,7 +212,7 @@ export default function Home() {
                 )}
                 {gate?.mint_address ? (
                   <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
-                    Mint: <code>{gate.mint_address}</code>
+                    UTT: <code>{gate.mint_address}</code>
                   </div>
                 ) : null}
               </div>
