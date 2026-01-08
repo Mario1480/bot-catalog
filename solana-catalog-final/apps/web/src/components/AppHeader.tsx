@@ -51,8 +51,6 @@ export function AppHeader() {
                 height: 35,
                 borderRadius: 0,
                 objectFit: "contain",
-                background: "rgba(255,255,255,.04)",
-                border: "0px solid rgba(255,255,255,.08)",
                 padding: 6,
               }}
             />
