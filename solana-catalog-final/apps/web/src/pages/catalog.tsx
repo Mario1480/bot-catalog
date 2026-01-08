@@ -26,7 +26,52 @@ type Product = {
   [key: string]: any;
 };
 
+
 type SortKey = "newest" | "az" | "za";
+
+type GatePreview = {
+  enabled: boolean;
+  mode: "usd" | "amount" | "none";
+  priceUsd: number | null;
+  requiredUsd: number | null;
+  requiredTokens: number | null;
+  mint_address?: string;
+};
+
+function fmtUsd(n: number | null | undefined) {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "–";
+  return `$${Number(n).toFixed(2)}`;
+}
+
+function fmtTokens(n: number | null | undefined) {
+  if (n === null || n === undefined || !Number.isFinite(Number(n))) return "–";
+  const x = Number(n);
+  // show more precision for small values
+  if (x < 1) return x.toFixed(4);
+  if (x < 100) return x.toFixed(2);
+  return x.toFixed(0);
+}
+
+function resolveApiBase() {
+  return (process.env.NEXT_PUBLIC_API_BASE || "https://api.utrade.vip").replace(/\/$/, "");
+}
+
+function gateHintFromError(msg: string) {
+  const m = (msg || "").toLowerCase();
+  if (m.includes("insufficient") || m.includes("not enough") || m.includes("balance")) {
+    return "Your wallet is connected, but you don’t meet the token requirement yet.";
+  }
+  if (m.includes("gate") || m.includes("token") || m.includes("gated")) {
+    return "Access is token-gated. Connect the correct wallet and make sure it meets the requirement.";
+  }
+  if (m.includes("unauthorized") || m.includes("invalid token") || m.includes("jwt") || m.includes("token expired")) {
+    return "Your session expired. Please reconnect your wallet.";
+  }
+  if (m.includes("forbidden") || m.includes("status 403")) {
+    return "Access denied. You may not meet the token requirement.";
+  }
+  return "Could not load the catalog. Please try again.";
+}
 
 function normalizeText(v: any) {
   return (v ?? "").toString().toLowerCase().trim();
@@ -137,6 +182,9 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  const [gate, setGate] = useState<GatePreview | null>(null);
+  const [gateErr, setGateErr] = useState("");
+
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
 
@@ -220,7 +268,8 @@ export default function CatalogPage() {
     const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
 
     if (!jwt) {
-      window.location.href = "/";
+      setLoading(false);
+      setErr("Missing session. Please connect your wallet to access the catalog.");
       return;
     }
 
@@ -239,13 +288,30 @@ export default function CatalogPage() {
           try {
             localStorage.removeItem("user_jwt");
           } catch {}
-          window.location.href = "/";
+          setErr("Session expired. Please go back and reconnect your wallet.");
+          return;
+        }
+
+        // Token-gate / access-denied style errors
+        if (msg.toLowerCase().includes("forbidden") || msg.toLowerCase().includes("status 403") || msg.toLowerCase().includes("gate")) {
+          setErr(msg);
           return;
         }
       } finally {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Fetch public gate preview info for UX display
+  useEffect(() => {
+    // public info for UX display
+    const API = resolveApiBase();
+    setGateErr("");
+    fetch(`${API}/gate/preview`)
+      .then((r) => r.json())
+      .then((d) => setGate(d))
+      .catch(() => setGateErr("Failed to load token gate info"));
   }, []);
 
   const categories = useMemo(() => {
@@ -437,17 +503,65 @@ export default function CatalogPage() {
 
             <div style={{ height: 18 }} />
 
-            <div className="badge">
-              <span className="badgeDot" />
-              Token-gated access active
-            </div>
+            {gate?.enabled ? (
+              <div className="card" style={{ padding: 12, background: "rgba(0,150,255,.06)", borderColor: "rgba(0,150,255,.22)" }}>
+                <div style={{ fontWeight: 900, marginBottom: 6 }}>🔐 Token-gated access</div>
+
+                {gate.mode === "usd" ? (
+                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+                    Required: <b style={{ color: "var(--text)" }}>{fmtUsd(gate.requiredUsd)}</b>
+                    {gate.priceUsd ? (
+                      <> (~{fmtTokens(gate.requiredTokens)} tokens · ${Number(gate.priceUsd).toFixed(4)} each)</>
+                    ) : null}
+                  </div>
+                ) : gate.mode === "amount" ? (
+                  <div style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
+                    Required: <b style={{ color: "var(--text)" }}>{fmtTokens(gate.requiredTokens)} tokens</b>
+                    {gate.priceUsd && gate.requiredUsd ? (
+                      <> (~{fmtUsd(gate.requiredUsd)})</>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, color: "var(--muted)" }}>Gate mode not set.</div>
+                )}
+
+                {gateErr ? (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,80,80,.9)" }}>{gateErr}</div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="badge">
+                <span className="badgeDot" />
+                Access open
+              </div>
+            )}
           </aside>
 
           <main style={{ order: 1 }}>
             {err && (
-              <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
-                <div style={{ fontWeight: 900 }}>Error</div>
-                <div style={{ color: "var(--muted)", marginTop: 6 }}>{err}</div>
+              <div
+                className="card"
+                style={{
+                  padding: 14,
+                  marginBottom: 14,
+                  borderColor: "rgba(255,80,80,.35)",
+                  background: "rgba(255,80,80,.08)",
+                }}
+              >
+                <div style={{ fontWeight: 900 }}>Access problem</div>
+                <div style={{ color: "var(--muted)", marginTop: 6, lineHeight: 1.5 }}>
+                  {gateHintFromError(err)}
+                </div>
+                <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>{err}</div>
+
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <a className="btn btnPrimary" href="/">
+                    Back to start
+                  </a>
+                  <button className="btn" onClick={() => window.location.reload()}>
+                    Retry
+                  </button>
+                </div>
               </div>
             )}
 
