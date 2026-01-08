@@ -27,10 +27,6 @@ type Product = {
 
 type SortKey = "newest" | "az" | "za";
 
-function normalizeText(v: any) {
-  return (v ?? "").toString().toLowerCase().trim();
-}
-
 function getProductName(p: Product) {
   return (p.title || p.name || "Untitled").toString();
 }
@@ -143,6 +139,12 @@ export default function CatalogPage() {
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
+  const [categories, setCategories] = useState<string[]>(["All"]);
+  const [tags, setTags] = useState<string[]>(["All"]);
+
+  const [page, setPage] = useState(1);
+  const pageSize = 12;
+  const [hasNextPage, setHasNextPage] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
@@ -212,7 +214,38 @@ export default function CatalogPage() {
     };
   }, []);
 
-  // Load products whenever jwt becomes available
+  // Load filters once when authenticated
+  useEffect(() => {
+    if (!jwt) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const out = await apiFetch("/products/filters", { method: "GET" }, jwt);
+        if (cancelled) return;
+        const cats = Array.isArray(out?.categories) ? out.categories : [];
+        const tgs = Array.isArray(out?.tags) ? out.tags : [];
+        setCategories(["All", ...cats]);
+        setTags(["All", ...tgs]);
+      } catch {
+        if (cancelled) return;
+        setCategories(["All"]);
+        setTags(["All"]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jwt]);
+
+  // Reset pagination on search/filter change
+  useEffect(() => {
+    setPage(1);
+  }, [q, selectedCategory, selectedTag]);
+
+  // Load products whenever jwt or query params change
   useEffect(() => {
     if (!jwt) return;
 
@@ -223,14 +256,24 @@ export default function CatalogPage() {
         setLoading(true);
         setErr("");
 
-        const out = await apiFetch("/products", { method: "GET" }, jwt);
+        const params = new URLSearchParams();
+        if (q) params.set("search", q);
+        if (selectedCategory !== "All") params.set("filters[category]", selectedCategory);
+        if (selectedTag !== "All") params.set("filters[tag]", selectedTag);
+        params.set("page", String(page));
+        params.set("pageSize", String(pageSize));
+
+        const out = await apiFetch(`/products?${params.toString()}`, { method: "GET" }, jwt);
         const items = Array.isArray(out) ? out : out?.items || out?.products || [];
         if (cancelled) return;
         setProducts(items);
+        setHasNextPage(items.length === pageSize);
       } catch (e: any) {
         const msg = (e?.message || "Failed to load products").toString();
         if (cancelled) return;
         setErr(msg);
+        setProducts([]);
+        setHasNextPage(false);
 
         if (isAuthErrorMessage(msg)) {
           try {
@@ -247,24 +290,10 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [jwt]);
-
-  const categories = useMemo(() => ["All"], []);
-  const tags = useMemo(() => ["All"], []);
+  }, [jwt, q, selectedCategory, selectedTag, page]);
 
   const filtered = useMemo(() => {
-    const qq = normalizeText(q);
-
-    let list = products.filter((p) => {
-      const title = normalizeText(getProductName(p));
-      const desc = normalizeText(p.description);
-
-      const matchQ = !qq || title.includes(qq) || desc.includes(qq);
-      const matchCategory = selectedCategory === "All";
-      const matchTag = selectedTag === "All";
-
-      return matchQ && matchCategory && matchTag;
-    });
+    let list = products.slice();
 
     if (sort === "az") {
       list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
@@ -279,7 +308,7 @@ export default function CatalogPage() {
     }
 
     return list;
-  }, [products, q, sort, selectedCategory, selectedTag]);
+  }, [products, sort]);
 
   return (
     <>
@@ -310,10 +339,10 @@ export default function CatalogPage() {
               >
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   <div style={{ fontSize: 20, fontWeight: 900, letterSpacing: -0.3 }}>Catalog</div>
-                  <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                    {loading ? "Loading products…" : `${filtered.length} item(s)`}
-                  </div>
+                <div style={{ color: "var(--muted)", fontSize: 13 }}>
+                  {loading ? "Loading products…" : `${filtered.length} item(s) on this page`}
                 </div>
+              </div>
 
                 <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                   <select
@@ -326,6 +355,16 @@ export default function CatalogPage() {
                     <option value="az">Sort: A → Z</option>
                     <option value="za">Sort: Z → A</option>
                   </select>
+
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button className="btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                      Prev
+                    </button>
+                    <div style={{ fontSize: 12, color: "var(--muted)" }}>Page {page}</div>
+                    <button className="btn" disabled={!hasNextPage} onClick={() => setPage((p) => p + 1)}>
+                      Next
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -378,6 +417,7 @@ export default function CatalogPage() {
                       setSelectedCategory("All");
                       setSelectedTag("All");
                       setSort("newest");
+                      setPage(1);
                     }}
                   >
                     Reset filters
