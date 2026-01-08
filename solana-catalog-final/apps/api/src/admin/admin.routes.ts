@@ -5,7 +5,7 @@ import multer from "multer";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
-import redis from "../redis.js";
+import { redis } from "../redis.js";
 
 import { query } from "../db.js";
 import { signAdminJwt } from "../auth/jwt.js";
