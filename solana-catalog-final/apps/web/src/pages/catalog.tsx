@@ -392,7 +392,8 @@ export default function CatalogPage() {
               height: "fit-content",
               position: isMobile ? "static" : "sticky",
               top: isMobile ? undefined : 88,
-              order: isMobile ? 2 : 0,
+              // On mobile, show filters ABOVE products
+              order: isMobile ? -1 : 0,
             }}
           >
             <div style={{ fontWeight: 900, marginBottom: 10 }}>Search</div>
@@ -442,7 +443,7 @@ export default function CatalogPage() {
             </div>
           </aside>
 
-          <main style={{ order: isMobile ? 1 : 0 }}>
+          <main style={{ order: 1 }}>
             {err && (
               <div className="card" style={{ padding: 14, marginBottom: 14, borderColor: "rgba(255,80,80,.35)", background: "rgba(255,80,80,.08)" }}>
                 <div style={{ fontWeight: 900 }}>Error</div>
