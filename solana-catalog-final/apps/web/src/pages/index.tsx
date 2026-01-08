@@ -1,64 +1,108 @@
-import express from "express";
-import cors from "cors";
-import { getGateConfig } from "./gate/gate.js";
-import { getUsdPriceFromCoinGecko } from "./gate/coingecko.js";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { apiBase } from "../lib/api";
 
-const app = express();
+type GatePreview = {
+  enabled: boolean;
+  mode: "usd" | "amount" | "none";
+  priceUsd: number | null;
+  requiredUsd: number | null;
+  requiredTokens: number | null;
+  mint_address: string;
+};
 
-app.use(cors());
-app.use(express.json());
+export default function HomePage() {
+  const API = apiBase();
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
+  const [gate, setGate] = useState<GatePreview | null>(null);
+  const [err, setErr] = useState("");
 
-// Public gate preview (used by homepage to show token price + required amount)
-app.get("/gate/preview", async (_req, res) => {
-  try {
-    const cfg = await getGateConfig();
-    if (!cfg) return res.status(500).json({ error: "gate_config not initialized" });
+  useEffect(() => {
+    fetch(`${API}/gate/preview`)
+      .then((r) => r.json())
+      .then(setGate)
+      .catch(() => setErr("Failed to load token gate status"));
+  }, [API]);
 
-    const enabled = !!cfg.enabled;
-    const mode = cfg.min_amount !== null ? "amount" : cfg.min_usd !== null ? "usd" : "none";
+  return (
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 16 }}>
+      <h1 style={{ fontSize: 32, fontWeight: 900 }}>Solana Bot Catalog</h1>
 
-    let priceUsd: number | null = null;
-    let requiredTokens: number | null = null;
-    let requiredUsd: number | null = null;
+      {/* Token gate info */}
+      {gate?.enabled ? (
+        <div
+          className="card"
+          style={{
+            marginTop: 20,
+            padding: 16,
+            background: "rgba(0,150,255,.08)",
+            borderColor: "rgba(0,150,255,.25)",
+          }}
+        >
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>
+            🔐 Token‑Gated Access
+          </div>
 
-    async function fetchPrice(): Promise<number> {
-      return await getUsdPriceFromCoinGecko({
-        mode: cfg.coingecko_mode,
-        coinId: cfg.coingecko_coin_id,
-        platform: cfg.coingecko_platform || "solana",
-        tokenAddress: (cfg.coingecko_token_address || cfg.mint_address || "").trim(),
-      });
-    }
+          {gate.mode === "usd" && (
+            <div style={{ lineHeight: 1.5 }}>
+              Required: <b>${gate.requiredUsd?.toFixed(2)}</b>
+              {gate.priceUsd ? (
+                <>
+                  {" "}
+                  (~{gate.requiredTokens?.toFixed(2)} tokens · $
+                  {gate.priceUsd.toFixed(4)} each)
+                </>
+              ) : null}
+            </div>
+          )}
 
-    if (mode === "usd") {
-      priceUsd = await fetchPrice();
-      requiredUsd = Number(cfg.min_usd);
-      if (Number.isFinite(requiredUsd) && priceUsd > 0) requiredTokens = requiredUsd / priceUsd;
-    } else if (mode === "amount") {
-      requiredTokens = Number(cfg.min_amount);
-      if (!Number.isFinite(requiredTokens)) requiredTokens = null;
-      try {
-        priceUsd = await fetchPrice();
-        if (priceUsd > 0 && requiredTokens !== null) requiredUsd = requiredTokens * priceUsd;
-      } catch {
-        // ignore
-      }
-    }
+          {gate.mode === "amount" && (
+            <div style={{ lineHeight: 1.5 }}>
+              Required: <b>{gate.requiredTokens?.toFixed(2)} tokens</b>
+              {gate.priceUsd ? (
+                <> (~${gate.requiredUsd?.toFixed(2)})</>
+              ) : null}
+            </div>
+          )}
 
-    return res.json({
-      enabled,
-      mode,
-      mint_address: cfg.mint_address || "",
-      min_amount: cfg.min_amount !== null ? Number(cfg.min_amount) : null,
-      min_usd: cfg.min_usd !== null ? Number(cfg.min_usd) : null,
-      tolerance_percent: Number(cfg.tolerance_percent ?? 2),
-      priceUsd,
-      requiredUsd,
-      requiredTokens,
-    });
-  } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Failed" });
-  }
-});
+          <div style={{ marginTop: 10, fontSize: 14, opacity: 0.85 }}>
+            Connect your wallet to unlock the full catalog.
+          </div>
+        </div>
+      ) : (
+        <div
+          className="card"
+          style={{
+            marginTop: 20,
+            padding: 16,
+            background: "rgba(0,200,100,.08)",
+            borderColor: "rgba(0,200,100,.25)",
+          }}
+        >
+          <b>✅ Access open</b> – no token required.
+        </div>
+      )}
+
+      {err ? (
+        <div
+          className="card"
+          style={{
+            marginTop: 20,
+            padding: 14,
+            background: "rgba(255,80,80,.08)",
+            borderColor: "rgba(255,80,80,.35)",
+          }}
+        >
+          {err}
+        </div>
+      ) : null}
+
+      {/* CTA */}
+      <div style={{ marginTop: 30 }}>
+        <Link href="/catalog" className="btn btnPrimary">
+          Open Catalog
+        </Link>
+      </div>
+    </main>
+  );
+}
