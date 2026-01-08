@@ -27,6 +27,7 @@ export default function Home() {
 
   const [status, setStatus] = useState("Connect your wallet to access the catalog.");
   const [loading, setLoading] = useState(false);
+  const [hasValidSession, setHasValidSession] = useState(false);
 
   const [gate, setGate] = useState<GatePreview | null>(null);
   const [gateErr, setGateErr] = useState("");
@@ -45,25 +46,29 @@ export default function Home() {
     })();
   }, []);
 
-  // If JWT exists, validate and redirect (on mount and on jwt changes)
+  // If JWT exists, validate and update UI (on mount and on jwt changes)
   useEffect(() => {
     let mounted = true;
 
-    const validateAndRedirect = async () => {
+    const validateAndUpdate = async () => {
       const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
-      if (!token) return;
+      if (!token) {
+        if (mounted) setHasValidSession(false);
+        return;
+      }
 
       try {
         setLoading(true);
-        setStatus("Access granted. Redirecting…");
+        setStatus("Access granted. You can open the catalog.");
         await apiFetch("/products", { method: "GET" }, token);
-        window.location.href = "/catalog";
+        if (mounted) setHasValidSession(true);
       } catch {
         try {
           localStorage.removeItem("user_jwt");
           localStorage.removeItem("user_pubkey");
         } catch {}
         notifyJwtChanged();
+        if (mounted) setHasValidSession(false);
         if (mounted) setStatus("Session expired. Please sign in again.");
       } finally {
         if (mounted) setLoading(false);
@@ -71,10 +76,10 @@ export default function Home() {
     };
 
     const onJwtChanged = () => {
-      void validateAndRedirect();
+      void validateAndUpdate();
     };
 
-    void validateAndRedirect();
+    void validateAndUpdate();
     if (typeof window !== "undefined") {
       window.addEventListener("user_jwt_changed", onJwtChanged);
     }
@@ -89,11 +94,13 @@ export default function Home() {
 
   useEffect(() => {
     if (!wallet.connected) {
+      setHasValidSession(false);
       setStatus("Connect your wallet to access the catalog.");
       return;
     }
 
     if (!wallet.signMessage) {
+      setHasValidSession(false);
       setStatus("Your wallet does not support message signing. Please use Phantom.");
       return;
     }
@@ -168,6 +175,17 @@ export default function Home() {
                 />
                 {loading ? "Working…" : status}
               </div>
+              {hasValidSession ? (
+                <button
+                  className="btn btnPrimary"
+                  style={{ marginTop: 12, width: "fit-content" }}
+                  onClick={() => {
+                    window.location.href = "/catalog";
+                  }}
+                >
+                  Access Bot Catalog
+                </button>
+              ) : null}
             </div>
 
             <div style={{ display: "grid", gap: 12 }}>
@@ -184,7 +202,7 @@ export default function Home() {
                   <li>Connect wallet (top right)</li>
                   <li>Sign a message</li>
                   <li>We verify token balance/value</li>
-                  <li>Catalog unlocks automatically</li>
+                  <li>Open the catalog</li>
                 </ol>
               </div>
 
