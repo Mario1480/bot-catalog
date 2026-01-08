@@ -182,6 +182,11 @@ export default function CatalogPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
+  // Helper: explicit navigation to start page (for reconnect button)
+  function goBackToStart() {
+    window.location.href = "/";
+  }
+
   const [gate, setGate] = useState<GatePreview | null>(null);
   const [gateErr, setGateErr] = useState("");
 
@@ -268,6 +273,7 @@ export default function CatalogPage() {
     const jwt = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
 
     if (!jwt) {
+      setProducts([]);
       setLoading(false);
       setErr("Missing session. Please connect your wallet to access the catalog.");
       return;
@@ -288,7 +294,8 @@ export default function CatalogPage() {
           try {
             localStorage.removeItem("user_jwt");
           } catch {}
-          setErr("Session expired. Please go back and reconnect your wallet.");
+          setProducts([]);
+          setErr("Session expired. Please reconnect your wallet on the start page.");
           return;
         }
 
@@ -555,12 +562,13 @@ export default function CatalogPage() {
                 <div style={{ marginTop: 8, fontSize: 12, color: "var(--muted)" }}>{err}</div>
 
                 <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <a className="btn btnPrimary" href="/">
-                    Back to start
-                  </a>
+                  <button className="btn btnPrimary" onClick={goBackToStart}>
+                    Reconnect wallet
+                  </button>
                   <button className="btn" onClick={() => window.location.reload()}>
                     Retry
                   </button>
+                  <button className="btn" onClick={() => setErr("")}>Dismiss</button>
                 </div>
               </div>
             )}
