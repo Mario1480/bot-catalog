@@ -237,8 +237,8 @@ a { color: inherit; }
 }
 
 .appFooter {
-  margin-top: 16px;
-  padding: 10px 0 14px;
+  margin-top: 40px;
+  padding: 0px 0 0px;
   border-top: 1px solid rgba(255,255,255,.08);
   background: rgba(0,0,0,.2);
 }
