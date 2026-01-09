@@ -138,6 +138,7 @@ export default function CatalogPage() {
 
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
@@ -268,7 +269,7 @@ export default function CatalogPage() {
   // Reset pagination on search/filter change
   useEffect(() => {
     setPage(1);
-  }, [q, selectedCategory, selectedTag, pageSize]);
+  }, [q, selectedCategory, selectedTag, pageSize, onlyFavorites]);
 
   // Load products whenever jwt or query params change
   useEffect(() => {
@@ -320,6 +321,10 @@ export default function CatalogPage() {
   const filtered = useMemo(() => {
     let list = products.slice();
 
+    if (onlyFavorites) {
+      list = list.filter((p) => favoriteSet.has(p.id));
+    }
+
     if (sort === "az") {
       list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
     } else if (sort === "za") {
@@ -333,7 +338,7 @@ export default function CatalogPage() {
     }
 
     return list;
-  }, [products, sort]);
+  }, [products, sort, onlyFavorites, favoriteSet]);
 
   async function toggleFavorite(productId: string) {
     if (!jwt) return;
@@ -463,6 +468,15 @@ export default function CatalogPage() {
                     </select>
                   </div>
 
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={onlyFavorites}
+                      onChange={(e) => setOnlyFavorites(e.target.checked)}
+                    />
+                    Only favorites
+                  </label>
+
                   <button
                     className="btn"
                     onClick={() => {
@@ -470,6 +484,7 @@ export default function CatalogPage() {
                       setSelectedCategory("All");
                       setSelectedTag("All");
                       setSort("newest");
+                      setOnlyFavorites(false);
                       setPage(1);
                     }}
                   >
