@@ -173,4 +173,3 @@ app.use("/admin", adminRouter);
   await initRedis();
   app.listen(env.PORT, () => console.log(`API listening on :${env.PORT}`));
 })();
- 
