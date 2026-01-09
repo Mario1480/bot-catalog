@@ -31,6 +31,7 @@ export default function Home() {
   const [status, setStatus] = useState("Connect your wallet to access the catalog.");
   const [loading, setLoading] = useState(false);
   const [hasValidSession, setHasValidSession] = useState(false);
+  const [gateStatus, setGateStatus] = useState<any | null>(null);
 
   const [gate, setGate] = useState<GatePreview | null>(null);
   const [gateErr, setGateErr] = useState("");
@@ -49,6 +50,30 @@ export default function Home() {
     })();
   }, []);
 
+  const readGateStatus = () => {
+    try {
+      const raw = localStorage.getItem("user_gate_status");
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {
+      return null;
+    }
+  };
+
+  const gateStatusMessage = (gs: any) => {
+    const reason = String(gs?.reason || "");
+    if (reason === "Insufficient token amount") {
+      const bal = Number(gs?.balance ?? NaN);
+      if (Number.isFinite(bal) && bal <= 0) return "Required token not found in wallet.";
+      return "Token amount is too low.";
+    }
+    if (reason === "Insufficient USD value") return "Token value in USD is too low.";
+    if (reason === "Gate mint not configured") return "Access gate not configured. Please contact support.";
+    if (reason === "Gate thresholds not configured") return "Access gate not configured. Please contact support.";
+    return reason || "Access denied.";
+  };
+
   // If JWT exists, validate and update UI (on mount and on jwt changes)
   useEffect(() => {
     let mounted = true;
@@ -57,14 +82,18 @@ export default function Home() {
       const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
       if (!token) {
         if (mounted) setHasValidSession(false);
+        const gs = readGateStatus();
+        if (mounted) setGateStatus(gs);
+        if (gs && mounted) setStatus(gateStatusMessage(gs));
         return;
       }
 
       try {
         setLoading(true);
-        setStatus("Access granted. You can open the catalog.");
+        setStatus("Approved. You can open the catalog.");
         await apiFetch("/products", { method: "GET" }, token);
         if (mounted) setHasValidSession(true);
+        if (mounted) setGateStatus(null);
       } catch {
         try {
           localStorage.removeItem("user_jwt");
@@ -108,8 +137,9 @@ export default function Home() {
       return;
     }
 
+    if (gateStatus) return;
     setStatus("Wallet connected. Please approve the sign-in message.");
-  }, [wallet.connected, wallet.signMessage]);
+  }, [wallet.connected, wallet.signMessage, gateStatus]);
 
   const gateLine = (() => {
     if (!gate) return null;
@@ -159,7 +189,7 @@ export default function Home() {
               <h1 style={{ margin: 0, fontSize: 34, letterSpacing: -0.5 }}>uTrade Bot Catalog</h1>
 
               <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.5 }}>
-                Beta Version
+                Beta v0.1
               </p>
 
               <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -214,7 +244,7 @@ export default function Home() {
                 )}
                 {gate?.mint_address ? (
                   <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
-                    UTT: <code>{gate.mint_address}</code>
+                    UTT Adress: <code>{gate.mint_address}</code>
                   </div>
                 ) : null}
               </div>
