@@ -24,11 +24,22 @@ export async function listCategories(opts?: { includeInactive?: boolean }) {
   return rows;
 }
 
+export function parseSortOrderInput(input: unknown, options?: { defaultValue?: number }) {
+  if (input === undefined) return options?.defaultValue;
+
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("sort_order must be a number");
+  }
+
+  return parsed;
+}
+
 export async function createCategory(input: { name: string; sort_order?: number; active?: boolean }) {
   const name = (input.name || "").trim();
   if (!name) throw new Error("Name is required");
 
-  const sort_order = Number.isFinite(Number(input.sort_order)) ? Number(input.sort_order) : 0;
+  const sort_order = parseSortOrderInput(input.sort_order, { defaultValue: 0 }) ?? 0;
   const active = input.active === undefined ? true : !!input.active;
 
   const rows = await query(
@@ -46,7 +57,8 @@ export async function createCategory(input: { name: string; sort_order?: number;
 export async function updateCategory(id: string, input: { name?: string; sort_order?: number; active?: boolean }) {
   const patch: any = {};
   if (input.name !== undefined) patch.name = String(input.name).trim();
-  if (input.sort_order !== undefined) patch.sort_order = Number(input.sort_order);
+  const sortOrder = parseSortOrderInput(input.sort_order);
+  if (sortOrder !== undefined) patch.sort_order = sortOrder;
   if (input.active !== undefined) patch.active = !!input.active;
 
   const keys = Object.keys(patch);
