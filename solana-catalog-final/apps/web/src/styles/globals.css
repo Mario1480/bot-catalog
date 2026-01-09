@@ -129,6 +129,34 @@ a { color: inherit; }
   min-width: 640px;
 }
 
+.adminCards {
+  display: none;
+  gap: 12px;
+}
+
+.adminCard {
+  padding: 12px;
+}
+
+.adminMeta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.adminRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.adminCardActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .adminFormGrid {
   display: grid;
   grid-template-columns: 1fr 160px 140px 140px;
@@ -171,6 +199,12 @@ a { color: inherit; }
   }
   .adminTableWrap table {
     min-width: 520px;
+  }
+  .adminTableWrap {
+    display: none;
+  }
+  .adminCards {
+    display: grid;
   }
 }
 

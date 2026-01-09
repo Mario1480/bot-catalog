@@ -204,6 +204,44 @@ export default function AdminCategoriesPage() {
             </tbody>
           </table>
         </div>
+
+        <div className="adminCards" style={{ marginTop: 14 }}>
+          {items.map((c) => (
+            <div key={c.id} className="card adminCard" style={{ opacity: c.active ? 1 : 0.6 }}>
+              <div className="adminRow">
+                <div style={{ fontWeight: 900 }}>{c.name}</div>
+                <div className="adminMeta">{c.active ? "Active" : "Inactive"}</div>
+              </div>
+
+              <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+                <label style={{ display: "grid", gap: 6 }}>
+                  <div className="adminMeta">Sort order</div>
+                  <input
+                    className="input"
+                    type="number"
+                    value={c.sort_order ?? 0}
+                    onChange={(e) => updateSort(c, Number(e.target.value))}
+                  />
+                </label>
+
+                <div className="adminCardActions">
+                  <button className="btn" onClick={() => toggleActive(c)}>
+                    {c.active ? "Active" : "Inactive"}
+                  </button>
+                  <button className="btn" onClick={() => remove(c)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {items.length === 0 && (
+            <div className="card adminCard" style={{ opacity: 0.75 }}>
+              No categories yet.
+            </div>
+          )}
+        </div>
       </div>
     </AdminLayout>
   );

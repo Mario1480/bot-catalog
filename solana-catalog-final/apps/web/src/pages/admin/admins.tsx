@@ -228,6 +228,37 @@ export default function AdminsPage() {
             </table>
           </div>
         )}
+
+        {!loading && items.length > 0 ? (
+          <div className="adminCards" style={{ marginTop: 12 }}>
+            {items.map((a) => (
+              <div key={a.id} className="card adminCard">
+                <div style={{ fontWeight: 900 }}>{a.email}</div>
+                <div className="adminMeta" style={{ marginTop: 6 }}>
+                  Created: {a.created_at ? new Date(a.created_at).toLocaleString() : "-"}
+                </div>
+                <div className="adminMeta">
+                  Updated: {a.updated_at ? new Date(a.updated_at).toLocaleString() : "-"}
+                </div>
+                <div className="adminCardActions" style={{ marginTop: 10 }}>
+                  <button className="btn" onClick={() => openReset(a)}>
+                    Reset password
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => del(a.id, a.email)}
+                    style={{
+                      borderColor: "rgba(255,80,80,.35)",
+                      background: "rgba(255,80,80,.08)",
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       {/* Reset password modal */}

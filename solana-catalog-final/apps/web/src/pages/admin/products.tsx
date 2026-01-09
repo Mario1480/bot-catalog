@@ -328,6 +328,49 @@ export default function AdminProductsList() {
           </table>
         </div>
 
+        <div className="adminCards" style={{ marginTop: 14 }}>
+          {sortedItems.map((p) => (
+            <div key={p.id} className="card adminCard">
+              <div className="adminRow">
+                <div style={{ fontWeight: 900 }}>{p.title}</div>
+                <div className="adminMeta">{p.status}</div>
+              </div>
+              <div className="adminMeta" style={{ marginTop: 6 }}>
+                {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
+              </div>
+              <div className="adminCardActions" style={{ marginTop: 10 }}>
+                <button
+                  className="btn"
+                  onClick={() => (window.location.href = `/admin/products-edit?id=${p.id}`)}
+                >
+                  Edit
+                </button>
+                <button
+                  className="btn"
+                  onClick={() => doDelete(p)}
+                  style={{
+                    borderColor: "rgba(255,80,80,.35)",
+                    background: "rgba(255,80,80,.08)",
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {items.length === 0 && !loading && (
+            <div className="card adminCard" style={{ opacity: 0.75 }}>
+              No products found.
+            </div>
+          )}
+          {loading && (
+            <div className="card adminCard" style={{ opacity: 0.75 }}>
+              Loading…
+            </div>
+          )}
+        </div>
+
         <div style={{ marginTop: 12, opacity: 0.7, fontSize: 13 }}>
           Tip: use the editor page to upload an image and edit fields/tags.
         </div>
