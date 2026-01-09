@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 
 import { env } from "./env.js";
-import { initRedis } from "./redis.js";
+import { initRedis, redis } from "./redis.js";
 import { makeNonce, upsertNonce, consumeNonce } from "./auth/nonce.js";
 import { verifySignature } from "./auth/verify.js";
 import { decideGate, getGateConfig } from "./gate/gate.js";
@@ -15,6 +15,36 @@ import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
 
 const app = express();
+
+async function trackUserAnalytics(pubkey: string, allowed: boolean) {
+  try {
+    const windows = [
+      { key: "ua:d1", ttl: 60 * 60 * 24 },
+      { key: "ua:d7", ttl: 60 * 60 * 24 * 7 },
+      { key: "ua:d30", ttl: 60 * 60 * 24 * 30 },
+    ];
+
+    for (const w of windows) {
+      await (redis as any).incr?.(`${w.key}:attempts`);
+      await (redis as any).expire?.(`${w.key}:attempts`, w.ttl);
+
+      if (allowed) {
+        await (redis as any).incr?.(`${w.key}:allowed`);
+        await (redis as any).expire?.(`${w.key}:allowed`, w.ttl);
+      } else {
+        await (redis as any).incr?.(`${w.key}:blocked`);
+        await (redis as any).expire?.(`${w.key}:blocked`, w.ttl);
+      }
+
+      if (pubkey) {
+        await (redis as any).sadd?.(`${w.key}:wallets`, pubkey);
+        await (redis as any).expire?.(`${w.key}:wallets`, w.ttl);
+      }
+    }
+  } catch {
+    // best-effort; don't block auth if analytics fails
+  }
+}
 
 /**
  * CORS:
@@ -157,6 +187,7 @@ app.post("/auth/verify", async (req, res) => {
   if (!ok) return res.status(401).json({ error: "Invalid signature" });
 
   const decision = await decideGate(String(pubkey));
+  await trackUserAnalytics(String(pubkey), decision.allowed);
   if (!decision.allowed) return res.status(403).json({ error: decision.reason, details: decision });
 
   const jwt = signUserJwt(String(pubkey));
