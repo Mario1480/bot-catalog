@@ -14,8 +14,8 @@ export function AppFooter() {
           </a>
           <a href="https://staking.utrade.vip" target="_blank" rel="noreferrer">
             UTT Staking
-          <a href="mailto:support@utrade.vip">support@utrade.vip</a>
           </a>
+          <a href="mailto:support@utrade.vip">support@utrade.vip</a>
         </div>
       </div>
     </footer>
