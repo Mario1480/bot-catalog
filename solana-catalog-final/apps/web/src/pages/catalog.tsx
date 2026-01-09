@@ -569,7 +569,11 @@ export default function CatalogPage() {
                                 style={{ width: "100%" }}
                                 onClick={() => toggleFavorite(p.id)}
                               >
-                                {favoriteSet.has(p.id) ? "★ Favorited" : "☆ Favorite"}
+                                {favoriteSet.has(p.id) ? (
+                                  <span style={{ color: "#FFC107" }}>★ Favorited</span>
+                                ) : (
+                                  "☆ Favorite"
+                                )}
                               </button>
 
                               <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
@@ -689,7 +693,11 @@ export default function CatalogPage() {
 
                     <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
                       <button className="btn" onClick={() => toggleFavorite(selectedProduct.id)}>
-                        {favoriteSet.has(selectedProduct.id) ? "★ Favorited" : "☆ Favorite"}
+                        {favoriteSet.has(selectedProduct.id) ? (
+                          <span style={{ color: "#FFC107" }}>★ Favorited</span>
+                        ) : (
+                          "☆ Favorite"
+                        )}
                       </button>
 
                       {link ? (
