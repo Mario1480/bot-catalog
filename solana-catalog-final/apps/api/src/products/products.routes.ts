@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import {
   listProducts,
   getFilters,
@@ -10,7 +10,11 @@ import { verifyUserJwt } from "../auth/jwt.js";
 
 export const productsRouter = Router();
 
-function requireUser(req: any, res: any, next: any) {
+type AuthenticatedRequest = Request & {
+  user?: ReturnType<typeof verifyUserJwt>;
+};
+
+function requireUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) return res.status(401).json({ error: "Missing token" });
@@ -28,14 +32,16 @@ productsRouter.get("/filters", requireUser, async (_req, res) => {
 });
 
 productsRouter.get("/favorites", requireUser, async (req, res) => {
-  const pubkey = String(req.user?.pubkey || "");
+  const authReq = req as AuthenticatedRequest;
+  const pubkey = String(authReq.user?.pubkey || "");
   if (!pubkey) return res.status(401).json({ error: "Invalid token" });
 
   res.json(await listFavoriteProductIds(pubkey));
 });
 
 productsRouter.post("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req, res) => {
-  const pubkey = String(req.user?.pubkey || "");
+  const authReq = req as AuthenticatedRequest;
+  const pubkey = String(authReq.user?.pubkey || "");
   if (!pubkey) return res.status(401).json({ error: "Invalid token" });
 
   try {
@@ -46,7 +52,8 @@ productsRouter.post("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req, 
 });
 
 productsRouter.delete("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req, res) => {
-  const pubkey = String(req.user?.pubkey || "");
+  const authReq = req as AuthenticatedRequest;
+  const pubkey = String(authReq.user?.pubkey || "");
   if (!pubkey) return res.status(401).json({ error: "Invalid token" });
 
   res.json(await removeFavorite(pubkey, String(req.params.id)));
