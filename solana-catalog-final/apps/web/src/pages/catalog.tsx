@@ -143,7 +143,7 @@ export default function CatalogPage() {
   const [tags, setTags] = useState<string[]>(["All"]);
 
   const [page, setPage] = useState(1);
-  const pageSize = 12;
+  const [pageSize, setPageSize] = useState(12);
   const [hasNextPage, setHasNextPage] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -243,7 +243,7 @@ export default function CatalogPage() {
   // Reset pagination on search/filter change
   useEffect(() => {
     setPage(1);
-  }, [q, selectedCategory, selectedTag]);
+  }, [q, selectedCategory, selectedTag, pageSize]);
 
   // Load products whenever jwt or query params change
   useEffect(() => {
@@ -290,7 +290,7 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [jwt, q, selectedCategory, selectedTag, page]);
+  }, [jwt, q, selectedCategory, selectedTag, page, pageSize]);
 
   const filtered = useMemo(() => {
     let list = products.slice();
@@ -356,6 +356,17 @@ export default function CatalogPage() {
                     <option value="za">Sort: Z → A</option>
                   </select>
 
+                  <select
+                    className="input"
+                    style={{ width: 160 }}
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                  >
+                    <option value={12}>Show: 12/page</option>
+                    <option value={24}>Show: 24/page</option>
+                    <option value={48}>Show: 48/page</option>
+                  </select>
+
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <button className="btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
                       Prev
@@ -400,7 +411,7 @@ export default function CatalogPage() {
                   </div>
 
                   <div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Tag</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Coins</div>
                     <select className="input" value={selectedTag} onChange={(e) => setSelectedTag(e.target.value)}>
                       {tags.map((t) => (
                         <option key={t} value={t}>
