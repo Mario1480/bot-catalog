@@ -114,11 +114,12 @@ export default function Home() {
     let mounted = true;
 
     const validateAndUpdate = async () => {
+      const gs = readGateStatus();
+      if (mounted) setGateStatus(gs);
+
       const token = typeof window !== "undefined" ? localStorage.getItem("user_jwt") : null;
       if (!token) {
         if (mounted) setHasValidSession(false);
-        const gs = readGateStatus();
-        if (mounted) setGateStatus(gs);
         if (gs && mounted) setStatus(gateStatusMessage(gs));
         return;
       }
@@ -128,7 +129,6 @@ export default function Home() {
         setStatus("Approved. You can open the catalog.");
         await apiFetch("/products", { method: "GET" }, token);
         if (mounted) setHasValidSession(true);
-        if (mounted) setGateStatus(null);
       } catch {
         try {
           localStorage.removeItem("user_jwt");
