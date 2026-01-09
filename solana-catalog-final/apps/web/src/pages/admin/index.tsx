@@ -190,6 +190,9 @@ export default function AdminDashboardPage() {
               <div style={{ color: "var(--muted)", marginTop: 6, fontSize: 13 }}>
                 Manage token gating, categories, products, CSV and admins.
               </div>
+              <div style={{ marginTop: 8 }}>
+                <span className="badge">Beta v0.1</span>
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
