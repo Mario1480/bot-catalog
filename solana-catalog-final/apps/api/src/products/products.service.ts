@@ -152,3 +152,47 @@ export async function listProducts({
     tags: tagsMap[p.id] || [],
   }));
 }
+
+export async function listFavoriteProductIds(pubkey: string): Promise<string[]> {
+  const rows = await query<{ product_id: string }>(
+    `
+    SELECT product_id
+    FROM user_favorites
+    WHERE pubkey = $1
+    ORDER BY created_at DESC
+    `,
+    [pubkey]
+  );
+
+  return rows.map((r) => r.product_id);
+}
+
+export async function addFavorite(pubkey: string, productId: string) {
+  const exists = await query<{ id: string }>(`SELECT id FROM products WHERE id = $1`, [productId]);
+  if (!exists[0]) throw new Error("Product not found");
+
+  await query(
+    `
+    INSERT INTO user_favorites (pubkey, product_id)
+    VALUES ($1, $2)
+    ON CONFLICT (pubkey, product_id) DO NOTHING
+    `,
+    [pubkey, productId]
+  );
+
+  return { ok: true };
+}
+
+export async function removeFavorite(pubkey: string, productId: string) {
+  const rows = await query(
+    `
+    DELETE FROM user_favorites
+    WHERE pubkey = $1 AND product_id = $2
+    RETURNING product_id
+    `,
+    [pubkey, productId]
+  );
+
+  if (!rows[0]) return { ok: false, removed: false };
+  return { ok: true, removed: true };
+}

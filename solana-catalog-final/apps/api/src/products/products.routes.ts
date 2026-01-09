@@ -1,5 +1,11 @@
 import { Router } from "express";
-import { listProducts, getFilters } from "./products.service.js";
+import {
+  listProducts,
+  getFilters,
+  listFavoriteProductIds,
+  addFavorite,
+  removeFavorite,
+} from "./products.service.js";
 import { verifyUserJwt } from "../auth/jwt.js";
 
 export const productsRouter = Router();
@@ -19,6 +25,31 @@ function requireUser(req: any, res: any, next: any) {
 
 productsRouter.get("/filters", requireUser, async (_req, res) => {
   res.json(await getFilters());
+});
+
+productsRouter.get("/favorites", requireUser, async (req: any, res) => {
+  const pubkey = String(req.user?.pubkey || "");
+  if (!pubkey) return res.status(401).json({ error: "Invalid token" });
+
+  res.json(await listFavoriteProductIds(pubkey));
+});
+
+productsRouter.post("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req: any, res) => {
+  const pubkey = String(req.user?.pubkey || "");
+  if (!pubkey) return res.status(401).json({ error: "Invalid token" });
+
+  try {
+    res.json(await addFavorite(pubkey, String(req.params.id)));
+  } catch (e: any) {
+    res.status(404).json({ error: e?.message || "Product not found" });
+  }
+});
+
+productsRouter.delete("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req: any, res) => {
+  const pubkey = String(req.user?.pubkey || "");
+  if (!pubkey) return res.status(401).json({ error: "Invalid token" });
+
+  res.json(await removeFavorite(pubkey, String(req.params.id)));
 });
 
 productsRouter.get("/", requireUser, async (req, res) => {

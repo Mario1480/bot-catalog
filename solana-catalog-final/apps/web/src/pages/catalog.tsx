@@ -134,6 +134,7 @@ export default function CatalogPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
 
   const [q, setQ] = useState("");
   const [sort, setSort] = useState<SortKey>("newest");
@@ -158,6 +159,8 @@ export default function CatalogPage() {
   const [needsAuth, setNeedsAuth] = useState<boolean>(() => !jwt);
 
   const lastJwtRef = useRef<string>(jwt || "");
+
+  const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
 
   // Listen for token changes (WalletConnect dispatches user_jwt_changed)
   // plus a lightweight poll as a safety net (some wallet UIs may not dispatch our custom event).
@@ -241,6 +244,27 @@ export default function CatalogPage() {
     };
   }, [jwt]);
 
+  useEffect(() => {
+    if (!jwt) return;
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const out = await apiFetch("/products/favorites", { method: "GET" }, jwt);
+        if (cancelled) return;
+        setFavoriteIds(Array.isArray(out) ? out : []);
+      } catch {
+        if (cancelled) return;
+        setFavoriteIds([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [jwt]);
+
   // Reset pagination on search/filter change
   useEffect(() => {
     setPage(1);
@@ -310,6 +334,23 @@ export default function CatalogPage() {
 
     return list;
   }, [products, sort]);
+
+  async function toggleFavorite(productId: string) {
+    if (!jwt) return;
+
+    const isFav = favoriteSet.has(productId);
+    try {
+      if (isFav) {
+        await apiFetch(`/products/${productId}/favorite`, { method: "DELETE" }, jwt);
+        setFavoriteIds((prev) => prev.filter((id) => id !== productId));
+      } else {
+        await apiFetch(`/products/${productId}/favorite`, { method: "POST" }, jwt);
+        setFavoriteIds((prev) => (prev.includes(productId) ? prev : [productId, ...prev]));
+      }
+    } catch (e: any) {
+      setErr((e?.message || "Failed to update favorite").toString());
+    }
+  }
 
   return (
     <>
@@ -508,6 +549,14 @@ export default function CatalogPage() {
                             <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
 
                             <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
+                              <button
+                                className="btn"
+                                style={{ width: "100%" }}
+                                onClick={() => toggleFavorite(p.id)}
+                              >
+                                {favoriteSet.has(p.id) ? "★ Favorited" : "☆ Favorite"}
+                              </button>
+
                               <button className="btn" style={{ width: "100%" }} onClick={() => setSelectedProduct(p)}>
                                 Details
                               </button>
@@ -624,6 +673,10 @@ export default function CatalogPage() {
                     </div>
 
                     <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <button className="btn" onClick={() => toggleFavorite(selectedProduct.id)}>
+                        {favoriteSet.has(selectedProduct.id) ? "★ Favorited" : "☆ Favorite"}
+                      </button>
+
                       {link ? (
                         <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
                           Start Bot
