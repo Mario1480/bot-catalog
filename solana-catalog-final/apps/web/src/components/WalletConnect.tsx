@@ -226,7 +226,8 @@ export function WalletConnect() {
         try {
           localStorage.setItem("user_jwt", token);
           localStorage.setItem("user_pubkey", pubkey);
-          localStorage.removeItem(gateStatusKey);
+          const details = typeof verifyJson?.details === "object" ? verifyJson.details : { reason: "OK" };
+          localStorage.setItem(gateStatusKey, JSON.stringify({ reason: "OK", ...details }));
         } catch {}
 
         ssSet(doneKey(pubkey), "1");

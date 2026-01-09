@@ -61,6 +61,15 @@ export default function Home() {
     }
   };
 
+  const fmtToken = (n: number) => {
+    if (!Number.isFinite(n)) return "-";
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(n);
+  };
+  const fmtUsd = (n: number) => {
+    if (!Number.isFinite(n)) return "-";
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(n);
+  };
+
   const gateStatusMessage = (gs: any) => {
     const reason = String(gs?.reason || "");
     if (reason === "Insufficient token amount") {
@@ -73,6 +82,32 @@ export default function Home() {
     if (reason === "Gate thresholds not configured") return "Access gate not configured. Please contact support.";
     return reason || "Access denied.";
   };
+
+  const gateInfo = (() => {
+    if (!gateStatus) return null;
+    const balance = Number(gateStatus?.balance ?? NaN);
+    const usdValue = Number(gateStatus?.usdValue ?? NaN);
+    const requiredTokens = Number(gate?.requiredTokens ?? NaN);
+    const requiredUsd = Number((gate as any)?.requiredUsd ?? (gate as any)?.min_usd ?? NaN);
+
+    const remainingTokens = Number.isFinite(balance) && Number.isFinite(requiredTokens)
+      ? Math.max(0, requiredTokens - balance)
+      : NaN;
+    const remainingUsd = Number.isFinite(usdValue) && Number.isFinite(requiredUsd)
+      ? Math.max(0, requiredUsd - usdValue)
+      : NaN;
+
+    return {
+      balance,
+      usdValue,
+      requiredTokens,
+      requiredUsd,
+      remainingTokens,
+      remainingUsd,
+      reason: String(gateStatus?.reason || ""),
+      mode: gate?.mode || "none",
+    };
+  })();
 
   // If JWT exists, validate and update UI (on mount and on jwt changes)
   useEffect(() => {
@@ -213,6 +248,56 @@ export default function Home() {
                   {hasValidSession ? "Access Bot Catalog" : "No Access"}
                 </button>
               </div>
+
+              {gateInfo ? (
+                <div
+                  className="card"
+                  style={{
+                    marginTop: 14,
+                    padding: 14,
+                    borderColor: "rgba(255,193,7,.35)",
+                    background: "rgba(255,193,7,.06)",
+                  }}
+                >
+                  <div style={{ fontWeight: 800, marginBottom: 8 }}>Wallet info</div>
+                  <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ color: "var(--muted)" }}>Token balance (UTT)</span>
+                      <span>{fmtToken(gateInfo.balance)}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ color: "var(--muted)" }}>USD value</span>
+                      <span>{fmtUsd(gateInfo.usdValue)}</span>
+                    </div>
+                    {Number.isFinite(gateInfo.requiredTokens) ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ color: "var(--muted)" }}>Required tokens (UTT)</span>
+                        <span>{fmtToken(gateInfo.requiredTokens)}</span>
+                      </div>
+                    ) : null}
+                    {Number.isFinite(gateInfo.requiredUsd) ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ color: "var(--muted)" }}>Required USD</span>
+                        <span>{fmtUsd(gateInfo.requiredUsd)}</span>
+                      </div>
+                    ) : null}
+
+                    {gateInfo.reason === "Insufficient token amount" && Number.isFinite(gateInfo.remainingTokens) ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ color: "var(--muted)" }}>Missing tokens (UTT)</span>
+                        <span>{fmtToken(gateInfo.remainingTokens)}</span>
+                      </div>
+                    ) : null}
+
+                    {gateInfo.reason === "Insufficient USD value" && Number.isFinite(gateInfo.remainingUsd) ? (
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                        <span style={{ color: "var(--muted)" }}>Missing USD</span>
+                        <span>{fmtUsd(gateInfo.remainingUsd)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: "grid", gap: 12 }}>
