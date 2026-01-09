@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { AppHeader } from "../components/AppHeader";
+import { AppFooter } from "../components/AppFooter";
 import { apiFetch } from "../lib/api";
 
 type Product = {
@@ -183,6 +184,8 @@ export default function ProductDetailPage() {
           ) : null}
         </div>
       </div>
+
+      <AppFooter />
     </>
   );
 }

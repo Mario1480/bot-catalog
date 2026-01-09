@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
+import { AppFooter } from "../components/AppFooter";
 import { apiFetch } from "../lib/api";
 
 type Product = {
@@ -644,6 +645,8 @@ export default function CatalogPage() {
           </>
         ) : null}
       </div>
+
+      <AppFooter />
     </>
   );
 }

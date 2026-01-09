@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { AppHeader } from "../components/AppHeader";
+import { AppFooter } from "../components/AppFooter";
 import { apiFetch } from "../lib/api";
 
 function notifyJwtChanged() {
@@ -221,6 +222,8 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      <AppFooter />
     </>
   );
 }

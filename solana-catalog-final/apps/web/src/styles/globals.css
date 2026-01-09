@@ -235,3 +235,40 @@ a { color: inherit; }
   border-radius: 999px;
   background: #4bfa00de;
 }
+
+.appFooter {
+  margin-top: 40px;
+  padding: 18px 0 28px;
+  border-top: 1px solid rgba(255,255,255,.08);
+  background: rgba(0,0,0,.2);
+}
+
+.appFooterInner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.appFooterCopy {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.appFooterLinks {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.appFooterLinks a {
+  text-decoration: none;
+  color: var(--text);
+  opacity: 0.9;
+}
+
+.appFooterLinks a:hover {
+  opacity: 1;
+}
