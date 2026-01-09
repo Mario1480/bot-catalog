@@ -7,6 +7,7 @@ import {
   removeFavorite,
 } from "./products.service.js";
 import { verifyUserJwt } from "../auth/jwt.js";
+import { getBlacklistEntry } from "../auth/blacklist.js";
 
 export const productsRouter = Router();
 
@@ -14,13 +15,21 @@ type AuthenticatedRequest = Request & {
   user?: ReturnType<typeof verifyUserJwt>;
 };
 
-function requireUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+async function requireUser(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
   if (!token) return res.status(401).json({ error: "Missing token" });
 
   try {
     req.user = verifyUserJwt(token);
+    const pubkey = String(req.user?.pubkey || "");
+    if (pubkey) {
+      const entry = await getBlacklistEntry(pubkey);
+      if (entry) {
+        const reason = entry.reason?.trim() || "Wallet blacklisted";
+        return res.status(403).json({ error: reason });
+      }
+    }
     next();
   } catch {
     return res.status(401).json({ error: "Invalid token" });

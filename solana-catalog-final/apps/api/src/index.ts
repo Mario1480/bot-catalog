@@ -10,6 +10,7 @@ import { verifySignature } from "./auth/verify.js";
 import { decideGate, getGateConfig } from "./gate/gate.js";
 import { getUsdPriceFromCoinGecko } from "./gate/coingecko.js";
 import { signUserJwt } from "./auth/jwt.js";
+import { getBlacklistEntry } from "./auth/blacklist.js";
 
 import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
@@ -185,6 +186,13 @@ app.post("/auth/verify", async (req, res) => {
 
   const ok = verifySignature(String(pubkey), String(signature), String(message));
   if (!ok) return res.status(401).json({ error: "Invalid signature" });
+
+  const blacklist = await getBlacklistEntry(String(pubkey));
+  if (blacklist) {
+    const reason = blacklist.reason?.trim() || "Wallet blacklisted";
+    await trackUserAnalytics(String(pubkey), false);
+    return res.status(403).json({ error: reason, details: { allowed: false, reason } });
+  }
 
   const decision = await decideGate(String(pubkey));
   await trackUserAnalytics(String(pubkey), decision.allowed);
