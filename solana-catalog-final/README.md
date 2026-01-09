@@ -70,6 +70,22 @@ Create a `.env` file from the template:
 cp .env.example .env
 ```
 
+Required variables:
+
+- `POSTGRES_PASSWORD` (used by Postgres container)
+- `DATABASE_URL` (API connection string)
+- `REDIS_URL`
+- `SOLANA_RPC_URL`
+- `JWT_SECRET`
+- `ADMIN_JWT_SECRET`
+- `NEXT_PUBLIC_API_BASE` (frontend API base URL)
+
+Optional variables:
+
+- `NEXT_PUBLIC_SOLANA_RPC_URL` (defaults to mainnet-beta)
+- `CORS_ORIGIN` (defaults to `*`)
+- `COINGECKO_API_KEY`
+
 ---
 
 ## 🐳 Docker Setup
