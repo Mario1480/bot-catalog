@@ -203,13 +203,17 @@ export default function Home() {
     if (gate.mode === "usd") {
       return {
         title: "Token gating (USD)",
-        body: `Price: ${price} · Required: ${reqUsd} ≈ ${reqTokens} tokens`,
+        price,
+        reqTokens,
+        reqUsd,
       };
     }
 
     return {
       title: "Token gating (Amount)",
-      body: `Price: ${price} · Required: ${reqTokens} tokens`,
+      price,
+      reqTokens,
+      reqUsd,
     };
   })();
 
@@ -269,19 +273,6 @@ export default function Home() {
                       <span style={{ color: "var(--muted)" }}>USD value</span>
                       <span>{fmtUsd(gateInfo.usdValue)}</span>
                     </div>
-                    {Number.isFinite(gateInfo.requiredTokens) ? (
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ color: "var(--muted)" }}>Required tokens (UTT)</span>
-                        <span>{fmtToken(gateInfo.requiredTokens)}</span>
-                      </div>
-                    ) : null}
-                    {Number.isFinite(gateInfo.requiredUsd) ? (
-                      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                        <span style={{ color: "var(--muted)" }}>Required USD</span>
-                        <span>{fmtUsd(gateInfo.requiredUsd)}</span>
-                      </div>
-                    ) : null}
-
                     {gateInfo.reason === "Insufficient token amount" && Number.isFinite(gateInfo.remainingTokens) ? (
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                         <span style={{ color: "var(--muted)" }}>Missing tokens (UTT)</span>
@@ -323,8 +314,16 @@ export default function Home() {
                 {gateErr ? (
                   <div style={{ marginTop: 8, color: "var(--muted)", lineHeight: 1.5 }}>{gateErr}</div>
                 ) : (
-                  <div style={{ marginTop: 8, color: "var(--muted)", lineHeight: 1.5 }}>
-                    {gateLine?.body || "Loading…"}
+                  <div style={{ marginTop: 8, display: "grid", gap: 6, color: "var(--muted)", lineHeight: 1.5 }}>
+                    <div>
+                      <b style={{ color: "var(--text)" }}>Price:</b> {gateLine?.price || "Loading…"}
+                    </div>
+                    <div>
+                      <b style={{ color: "var(--text)" }}>Required tokens:</b> {gateLine?.reqTokens || "Loading…"} UTT
+                    </div>
+                    <div>
+                      <b style={{ color: "var(--text)" }}>Required USD:</b> {gateLine?.reqUsd || "Loading…"}
+                    </div>
                   </div>
                 )}
                 {gate?.mint_address ? (
