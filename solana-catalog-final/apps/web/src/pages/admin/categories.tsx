@@ -111,7 +111,7 @@ export default function AdminCategoriesPage() {
         <div className="card" style={{ padding: 14 }}>
           <div style={{ fontWeight: 900, marginBottom: 10 }}>Create category</div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 160px 140px 140px", gap: 10, alignItems: "end" }}>
+          <div className="adminFormGrid">
             <label style={{ display: "grid", gap: 6 }}>
               <div style={{ fontSize: 12, opacity: 0.8 }}>Name</div>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Bots" />
@@ -147,7 +147,7 @@ export default function AdminCategoriesPage() {
           </div>
         </div>
 
-        <div className="card" style={{ padding: 0, marginTop: 14, overflow: "hidden" }}>
+        <div className="card adminTableWrap" style={{ padding: 0, marginTop: 14 }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>

@@ -29,13 +29,11 @@ export function AdminLayout({
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "260px 1fr" }}>
+      <div className="adminShell">
         {/* Sidebar */}
         <aside
+          className="adminSidebar"
           style={{
-            position: "sticky",
-            top: 0,
-            height: "100vh",
             borderRight: "1px solid var(--border)",
             background: "rgba(0,0,0,.18)",
             backdropFilter: "blur(10px)",
@@ -65,7 +63,7 @@ export function AdminLayout({
             </div>
           </Link>
 
-          <nav style={{ display: "grid", gap: 8 }}>
+          <nav className="adminNav">
             {[
               { href: "/admin", label: "Dashboard" },
               { href: "/admin/gate", label: "Token gating" },
@@ -110,17 +108,12 @@ export function AdminLayout({
         </aside>
 
         {/* Content */}
-        <main style={{ padding: 18 }}>
+        <main className="adminMain">
           <div
-            className="card"
+            className="card adminHeader"
             style={{
               padding: 14,
               marginBottom: 16,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              flexWrap: "wrap",
             }}
           >
             <div style={{ fontWeight: 900, fontSize: 18 }}>

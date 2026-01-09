@@ -179,7 +179,7 @@ export default function AdminsPage() {
         ) : items.length === 0 ? (
           <div style={{ color: "var(--muted)" }}>No admins found.</div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
+          <div className="adminTableWrap">
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>

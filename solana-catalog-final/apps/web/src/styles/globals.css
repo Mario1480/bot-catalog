@@ -93,6 +93,87 @@ a { color: inherit; }
   }
 }
 
+.adminShell {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+.adminSidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.adminMain {
+  padding: 18px;
+}
+
+.adminNav {
+  display: grid;
+  gap: 8px;
+}
+
+.adminHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.adminTableWrap {
+  overflow-x: auto;
+}
+
+.adminTableWrap table {
+  min-width: 640px;
+}
+
+.adminFormGrid {
+  display: grid;
+  grid-template-columns: 1fr 160px 140px 140px;
+  gap: 10px;
+  align-items: end;
+}
+
+.adminFieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@media (max-width: 900px) {
+  .adminShell {
+    grid-template-columns: 1fr;
+  }
+  .adminSidebar {
+    position: static !important;
+    height: auto !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+  }
+  .adminMain {
+    padding: 14px;
+  }
+  .adminNav {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+  .adminHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .adminFormGrid {
+    grid-template-columns: 1fr;
+  }
+  .adminFieldRow {
+    grid-template-columns: 1fr;
+  }
+  .adminTableWrap table {
+    min-width: 520px;
+  }
+}
+
 .input {
   width: 100%;
   border: 1px solid var(--border);

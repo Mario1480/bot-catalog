@@ -431,12 +431,7 @@ export default function ProductEditor() {
             {fields.map((f, i) => (
               <div
                 key={i}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr auto",
-                  gap: 8,
-                  marginTop: 10,
-                }}
+                className="adminFieldRow"
               >
                 <input
                   className="input"

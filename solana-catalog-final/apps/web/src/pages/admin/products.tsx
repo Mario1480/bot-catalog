@@ -261,7 +261,7 @@ export default function AdminProductsList() {
           </div>
         </div>
 
-        <div className="card" style={{ padding: 0, marginTop: 14, overflow: "hidden" }}>
+        <div className="card adminTableWrap" style={{ padding: 0, marginTop: 14 }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
