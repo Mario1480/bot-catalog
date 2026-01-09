@@ -11,7 +11,7 @@ const HEADER = [
   "Category",
   "Tags",
   "Trading",
-  "Laverage",
+  "Leverage",
   "Price...Loss (SL)",
   "Take-Profit (TP)",
   "Minimum Invest",
@@ -20,6 +20,7 @@ const HEADER = [
 ];
 
 const MAIN_COLS = new Set(HEADER);
+const LEGACY_COLS = new Set(["Laverage"]);
 
 function esc(v: any) {
   const s = String(v ?? "");
@@ -76,6 +77,7 @@ export async function exportProductsCsvSemicolon(): Promise<string> {
 
     const cats = list.filter((x) => x.key === "category").map((x) => x.value);
     const getField = (k: string) => (list.find((x) => x.key === k)?.value ?? "");
+    const getLeverageField = () => getField("Leverage") || getField("Laverage");
 
     const row = [
       p.id,
@@ -85,7 +87,7 @@ export async function exportProductsCsvSemicolon(): Promise<string> {
       cats.join("|"),
       tagList.join("|"),
       getField("Trading"),
-      getField("Laverage"),
+      getLeverageField(),
       getField("Price...Loss (SL)"),
       getField("Take-Profit (TP)"),
       getField("Minimum Invest"),
@@ -175,7 +177,7 @@ export async function importProductsCsvSemicolon(buffer: Buffer) {
 
       const fixedFieldKeys = [
         "Trading",
-        "Laverage",
+        "Leverage",
         "Price...Loss (SL)",
         "Take-Profit (TP)",
         "Minimum Invest",
@@ -183,13 +185,14 @@ export async function importProductsCsvSemicolon(buffer: Buffer) {
       ];
 
       for (const k of fixedFieldKeys) {
-        const v = String(r[k] ?? "").trim();
+        const v =
+          k === "Leverage" ? String(r[k] ?? r["Laverage"] ?? "").trim() : String(r[k] ?? "").trim();
         if (v) fields.push({ key: k, value: v });
       }
 
       // optional: any unknown columns -> fields
       for (const [k, v] of Object.entries(r)) {
-        if (MAIN_COLS.has(k)) continue;
+        if (MAIN_COLS.has(k) || LEGACY_COLS.has(k)) continue;
         const vv = String(v ?? "").trim();
         if (!vv) continue;
         fields.push({ key: String(k).trim(), value: vv });

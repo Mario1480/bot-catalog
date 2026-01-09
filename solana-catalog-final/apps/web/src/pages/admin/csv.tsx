@@ -117,7 +117,7 @@ export default function AdminCsvPage() {
           <div style={{ opacity: 0.75, fontSize: 13, lineHeight: 1.4 }}>
             <div><b>Expected columns (semicolon separated):</b></div>
             <div>
-              ID; Name; Description; Image; Category; Tags; Trading; Laverage; Price...Loss (SL);
+              ID; Name; Description; Image; Category; Tags; Trading; Leverage; Price...Loss (SL);
               Take-Profit (TP); Minimum Invest; Start Level; Bot Link
             </div>
             <div style={{ marginTop: 8 }}>
