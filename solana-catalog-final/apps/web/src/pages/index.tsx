@@ -328,7 +328,7 @@ export default function Home() {
                 )}
                 {gate?.mint_address ? (
                   <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
-                    UTT Adress: <code>{gate.mint_address}</code>
+                    UTT Address: <code>{gate.mint_address}</code>
                   </div>
                 ) : null}
               </div>
