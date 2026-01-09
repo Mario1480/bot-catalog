@@ -10,11 +10,11 @@ export function AppFooter() {
             utrade.vip
           </a>
           <a href="https://linktr.ee/utradetoken" target="_blank" rel="noreferrer">
-            Linktree
+            All Links
           </a>
-          <a href="mailto:support@utrade.vip">support@utrade.vip</a>
           <a href="https://staking.utrade.vip" target="_blank" rel="noreferrer">
-            Staking
+            UTT Staking
+          <a href="mailto:support@utrade.vip">support@utrade.vip</a>
           </a>
         </div>
       </div>
