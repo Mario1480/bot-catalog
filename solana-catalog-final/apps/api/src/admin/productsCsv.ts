@@ -1,9 +1,9 @@
 // apps/api/src/admin/productsCsv.ts
 import { query } from "../db.js";
 
-type FieldKV = { key: string; value: string };
+export type FieldKV = { key: string; value: string };
 
-const HEADER = [
+export const HEADER = [
   "ID",
   "Name",
   "Description",
@@ -19,8 +19,16 @@ const HEADER = [
   "Bot Link",
 ];
 
-const MAIN_COLS = new Set(HEADER);
-const LEGACY_COLS = new Set(["Laverage"]);
+export const MAIN_COLS = new Set(HEADER);
+export const LEGACY_COLS = new Set(["Laverage"]);
+export const FIXED_FIELD_KEYS = [
+  "Trading",
+  "Leverage",
+  "Price...Loss (SL)",
+  "Take-Profit (TP)",
+  "Minimum Invest",
+  "Start Level",
+];
 
 function esc(v: any) {
   const s = String(v ?? "");
@@ -29,7 +37,7 @@ function esc(v: any) {
   return s;
 }
 
-function splitList(v: any): string[] {
+export function splitList(v: any): string[] {
   const s = String(v ?? "").trim();
   if (!s) return [];
   // allow "a|b|c" or "a, b, c"
@@ -101,7 +109,7 @@ export async function exportProductsCsvSemicolon(): Promise<string> {
   return out;
 }
 
-function parseSemicolonCsv(buffer: Buffer): Record<string, string>[] {
+export function parseSemicolonCsv(buffer: Buffer): Record<string, string>[] {
   const text = buffer.toString("utf-8").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = text.split("\n").filter((l) => l.trim().length > 0);
   if (!lines.length) return [];
@@ -175,16 +183,7 @@ export async function importProductsCsvSemicolon(buffer: Buffer) {
 
       for (const c of categories) fields.push({ key: "category", value: c });
 
-      const fixedFieldKeys = [
-        "Trading",
-        "Leverage",
-        "Price...Loss (SL)",
-        "Take-Profit (TP)",
-        "Minimum Invest",
-        "Start Level",
-      ];
-
-      for (const k of fixedFieldKeys) {
+      for (const k of FIXED_FIELD_KEYS) {
         const v =
           k === "Leverage" ? String(r[k] ?? r["Laverage"] ?? "").trim() : String(r[k] ?? "").trim();
         if (v) fields.push({ key: k, value: v });
