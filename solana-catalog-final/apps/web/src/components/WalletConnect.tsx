@@ -44,6 +44,7 @@ function ssClearPrefix(prefix: string) {
 
 export function WalletConnect() {
   const wallet = useWallet();
+  const gateStatusKey = "user_gate_status";
 
   const [busy, setBusy] = useState(false);
   const [lastErr, setLastErr] = useState<string>("");
@@ -77,6 +78,7 @@ export function WalletConnect() {
       try {
         localStorage.removeItem("user_jwt");
         localStorage.removeItem("user_pubkey");
+        localStorage.removeItem(gateStatusKey);
       } catch {}
 
       ssClearPrefix("wallet_login_lock:");
@@ -200,6 +202,17 @@ export function WalletConnect() {
 
         const verifyJson = await verifyRes.json().catch(() => ({} as any));
         if (!verifyRes.ok) {
+          if (verifyRes.status === 403) {
+            try {
+              const reason = String(verifyJson?.error || "Access denied");
+              const details = typeof verifyJson?.details === "object" ? verifyJson.details : {};
+              localStorage.setItem(gateStatusKey, JSON.stringify({ reason, ...details }));
+            } catch {}
+          } else {
+            try {
+              localStorage.removeItem(gateStatusKey);
+            } catch {}
+          }
           const hint =
             verifyRes.status === 403
               ? "Access denied by token gating. Please hold the required amount and try again."
@@ -213,6 +226,7 @@ export function WalletConnect() {
         try {
           localStorage.setItem("user_jwt", token);
           localStorage.setItem("user_pubkey", pubkey);
+          localStorage.removeItem(gateStatusKey);
         } catch {}
 
         ssSet(doneKey(pubkey), "1");
