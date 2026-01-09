@@ -135,7 +135,7 @@ app.get("/auth/nonce", async (req, res) => {
   const nonce = makeNonce();
   await upsertNonce(pubkey, nonce, 10);
 
-  const message = `Sign in to Solana Catalog\n\nNonce: ${nonce}`;
+  const message = `Sign in uTrade Bot Catalog\n\nNonce: ${nonce}`;
   res.json({ nonce, message });
 });
 
