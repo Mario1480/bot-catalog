@@ -659,9 +659,10 @@ export default function CatalogPage() {
                     ) : null}
 
                     {selectedProduct.description ? (
-                      <div style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-                        {String(selectedProduct.description)}
-                      </div>
+                      <div
+                        style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6 }}
+                        dangerouslySetInnerHTML={{ __html: String(selectedProduct.description) }}
+                      />
                     ) : null}
 
                     <div style={{ marginTop: 16 }}>

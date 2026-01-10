@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { apiFetch, apiBase } from "../../lib/api";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 
@@ -12,6 +13,11 @@ type Category = {
   created_at?: string;
   updated_at?: string;
 };
+
+const TinyEditor = dynamic(
+  () => import("@tinymce/tinymce-react").then((m) => m.Editor),
+  { ssr: false }
+);
 
 function qp(name: string): string {
   if (typeof window === "undefined") return "";
@@ -271,12 +277,23 @@ export default function ProductEditor() {
 
           <label style={{ display: "grid", gap: 6 }}>
             <div style={{ fontWeight: 800 }}>Description (Details page)</div>
-            <textarea
-              className="input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              style={{ minHeight: 120 }}
-            />
+            <div className="input" style={{ padding: 8 }}>
+              <TinyEditor
+                value={description}
+                onEditorChange={(val) => setDescription(val)}
+                init={{
+                  height: 260,
+                  menubar: false,
+                  statusbar: false,
+                  branding: false,
+                  plugins: "link lists code",
+                  toolbar:
+                    "undo redo | bold italic underline | bullist numlist | link | code",
+                  content_style:
+                    "body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; font-size: 14px; }",
+                }}
+              />
+            </div>
           </label>
 
           <label style={{ display: "grid", gap: 6 }}>

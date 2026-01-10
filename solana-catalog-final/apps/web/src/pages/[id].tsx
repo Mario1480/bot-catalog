@@ -160,7 +160,10 @@ export default function ProductDetailPage() {
                 <h1 style={{ margin: 0 }}>{product.title || "Untitled"}</h1>
 
                 {product.description ? (
-                  <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.6 }}>{product.description}</p>
+                  <div
+                    style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.6 }}
+                    dangerouslySetInnerHTML={{ __html: String(product.description) }}
+                  />
                 ) : null}
 
                 <div style={{ marginTop: 16 }}>
