@@ -606,6 +606,20 @@ export default function CatalogPage() {
                     })}
                   </div>
                 )}
+
+                {!loading && filtered.length > 0 ? (
+                  <div style={{ marginTop: 16, display: "flex", justifyContent: "center" }}>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      <button className="btn" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                        Prev
+                      </button>
+                      <div style={{ fontSize: 12, color: "var(--muted)" }}>Page {page}</div>
+                      <button className="btn" disabled={!hasNextPage} onClick={() => setPage((p) => p + 1)}>
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
               </main>
             </div>
 
