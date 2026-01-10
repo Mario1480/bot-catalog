@@ -286,6 +286,7 @@ export default function ProductEditor() {
               }}
             >
               <TinyEditor
+                apiKey="uavsdz2q5s7vg0ihzcdirz8m3988mqb22w6sf15vqv4o395h"
                 value={description}
                 onEditorChange={(val) => setDescription(val)}
                 init={{
@@ -293,7 +294,6 @@ export default function ProductEditor() {
                   menubar: false,
                   statusbar: false,
                   branding: false,
-                  apiKey: "uavsdz2q5s7vg0ihzcdirz8m3988mqb22w6sf15vqv4o395h",
                   plugins: "link lists code",
                   toolbar:
                     "undo redo | bold italic underline | bullist numlist | link | code",
