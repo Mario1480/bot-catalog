@@ -80,6 +80,13 @@ function buildExtraFields(p: Product) {
   return out.filter(([k]) => (seen.has(k) ? false : (seen.add(k), true)));
 }
 
+function normalizeDescriptionHtml(input: string) {
+  return (input || "").replace(
+    /color\s*:\s*(#000000|#000|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)|black)\s*;?/gi,
+    "color: inherit;"
+  );
+}
+
 export default function ProductDetailPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -162,7 +169,9 @@ export default function ProductDetailPage() {
                 {product.description ? (
                   <div
                     style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.6 }}
-                    dangerouslySetInnerHTML={{ __html: String(product.description) }}
+                    dangerouslySetInnerHTML={{
+                      __html: normalizeDescriptionHtml(String(product.description)),
+                    }}
                   />
                 ) : null}
 
