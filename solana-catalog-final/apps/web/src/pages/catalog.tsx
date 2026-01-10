@@ -111,6 +111,13 @@ function buildExtraFields(p: Product) {
   return deduped.slice(0, 50);
 }
 
+function normalizeDescriptionHtml(input: string) {
+  return (input || "").replace(
+    /color\s*:\s*(#000000|#000|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)|black)\s*;?/gi,
+    "color: inherit;"
+  );
+}
+
 function isAuthErrorMessage(msg: string) {
   const m = (msg || "").toLowerCase();
   return (
@@ -661,7 +668,9 @@ export default function CatalogPage() {
                     {selectedProduct.description ? (
                       <div
                         style={{ marginTop: 14, color: "var(--muted)", lineHeight: 1.6 }}
-                        dangerouslySetInnerHTML={{ __html: String(selectedProduct.description) }}
+                        dangerouslySetInnerHTML={{
+                          __html: normalizeDescriptionHtml(String(selectedProduct.description)),
+                        }}
                       />
                     ) : null}
 
