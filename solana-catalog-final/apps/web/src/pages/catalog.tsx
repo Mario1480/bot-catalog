@@ -293,6 +293,7 @@ export default function CatalogPage() {
         if (q) params.set("search", q);
         if (selectedCategory !== "All") params.set("filters[category]", selectedCategory);
         if (selectedTag !== "All") params.set("filters[tag]", selectedTag);
+        if (onlyFavorites) params.set("onlyFavorites", "1");
         params.set("page", String(page));
         params.set("pageSize", String(pageSize));
 
@@ -323,14 +324,10 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [jwt, q, selectedCategory, selectedTag, page, pageSize]);
+  }, [jwt, q, selectedCategory, selectedTag, page, pageSize, onlyFavorites]);
 
   const filtered = useMemo(() => {
     let list = products.slice();
-
-    if (onlyFavorites) {
-      list = list.filter((p) => favoriteSet.has(p.id));
-    }
 
     if (sort === "az") {
       list = list.sort((a, b) => getProductName(a).localeCompare(getProductName(b)));
@@ -345,7 +342,7 @@ export default function CatalogPage() {
     }
 
     return list;
-  }, [products, sort, onlyFavorites, favoriteSet]);
+  }, [products, sort]);
 
   async function toggleFavorite(productId: string) {
     if (!jwt) return;

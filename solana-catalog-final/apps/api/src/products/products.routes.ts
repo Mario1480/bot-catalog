@@ -69,7 +69,13 @@ productsRouter.delete("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req
 });
 
 productsRouter.get("/", requireUser, async (req, res) => {
+  const authReq = req as AuthenticatedRequest;
+  const pubkey = String(authReq.user?.pubkey || "");
   const search = typeof req.query.search === "string" ? req.query.search : undefined;
+  const onlyFavorites =
+    req.query.onlyFavorites === "1" ||
+    req.query.onlyFavorites === "true" ||
+    req.query.onlyFavorites === "yes";
 
   // Expect filters as ?filters[key]=value
   const rawFilters = (req.query.filters ?? {}) as any;
@@ -84,5 +90,5 @@ productsRouter.get("/", requireUser, async (req, res) => {
   const page = req.query.page ? Number(req.query.page) : 1;
   const pageSize = req.query.pageSize ? Number(req.query.pageSize) : 12;
 
-  res.json(await listProducts({ search, filters, page, pageSize }));
+  res.json(await listProducts({ search, filters, page, pageSize, pubkey, onlyFavorites }));
 });

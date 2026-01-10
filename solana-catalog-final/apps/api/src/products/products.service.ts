@@ -5,6 +5,8 @@ type ListArgs = {
   filters?: Record<string, string>;
   page?: number;
   pageSize?: number;
+  pubkey?: string;
+  onlyFavorites?: boolean;
 };
 
 function normalizeFilters(filters?: Record<string, string>) {
@@ -53,6 +55,8 @@ export async function listProducts({
   filters,
   page = 1,
   pageSize = 12,
+  pubkey,
+  onlyFavorites = false,
 }: ListArgs) {
   const qStr = typeof search === "string" ? search.trim() : "";
   const f = normalizeFilters(filters);
@@ -66,6 +70,17 @@ export async function listProducts({
   // Always show only published on public products endpoint
   params.push("published");
   where.push(`p.status = $${params.length}`);
+
+  if (onlyFavorites && pubkey) {
+    params.push(pubkey);
+    where.push(`
+      EXISTS (
+        SELECT 1 FROM user_favorites uf
+        WHERE uf.product_id = p.id
+          AND uf.pubkey = $${params.length}
+      )
+    `);
+  }
 
   if (qStr) {
     params.push(`%${qStr}%`);
