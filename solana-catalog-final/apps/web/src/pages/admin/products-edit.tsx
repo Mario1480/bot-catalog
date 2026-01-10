@@ -275,9 +275,16 @@ export default function ProductEditor() {
             />
           </label>
 
-          <label style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "grid", gap: 6 }}>
             <div style={{ fontWeight: 800 }}>Description (Details page)</div>
-            <div className="input" style={{ padding: 8 }}>
+            <div
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                background: "rgba(255,255,255,.04)",
+                padding: 8,
+              }}
+            >
               <TinyEditor
                 value={description}
                 onEditorChange={(val) => setDescription(val)}
@@ -295,7 +302,7 @@ export default function ProductEditor() {
                 }}
               />
             </div>
-          </label>
+          </div>
 
           <label style={{ display: "grid", gap: 6 }}>
             <div style={{ fontWeight: 800 }}>Target URL</div>
