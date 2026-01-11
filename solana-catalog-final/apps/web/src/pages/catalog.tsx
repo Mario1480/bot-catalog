@@ -189,6 +189,7 @@ export default function CatalogPage() {
 
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("All");
+  const [selectedLevel, setSelectedLevel] = useState("All");
   const [categories, setCategories] = useState<string[]>(["All"]);
   const [tags, setTags] = useState<string[]>(["All"]);
 
@@ -317,7 +318,7 @@ export default function CatalogPage() {
   // Reset pagination on search/filter change
   useEffect(() => {
     setPage(1);
-  }, [q, selectedCategory, selectedTag, pageSize, onlyFavorites]);
+  }, [q, selectedCategory, selectedTag, selectedLevel, pageSize, onlyFavorites]);
 
   // Load products whenever jwt or query params change
   useEffect(() => {
@@ -334,6 +335,7 @@ export default function CatalogPage() {
         if (q) params.set("search", q);
         if (selectedCategory !== "All") params.set("filters[category]", selectedCategory);
         if (selectedTag !== "All") params.set("filters[tag]", selectedTag);
+        if (selectedLevel !== "All") params.set("filters[level]", selectedLevel);
         if (onlyFavorites) params.set("onlyFavorites", "1");
         params.set("page", String(page));
         params.set("pageSize", String(pageSize));
@@ -365,7 +367,7 @@ export default function CatalogPage() {
     return () => {
       cancelled = true;
     };
-  }, [jwt, q, selectedCategory, selectedTag, page, pageSize, onlyFavorites]);
+  }, [jwt, q, selectedCategory, selectedTag, selectedLevel, page, pageSize, onlyFavorites]);
 
   const filtered = useMemo(() => {
     let list = products.slice();
@@ -522,6 +524,17 @@ export default function CatalogPage() {
                     </select>
                   </div>
 
+                  <div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", marginBottom: 6 }}>Level</div>
+                    <select className="input" value={selectedLevel} onChange={(e) => setSelectedLevel(e.target.value)}>
+                      {["All", "Beginner", "Advanced", "Expert"].map((lvl) => (
+                        <option key={lvl} value={lvl}>
+                          {lvl}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
                     <input
                       type="checkbox"
@@ -537,6 +550,7 @@ export default function CatalogPage() {
                       setQ("");
                       setSelectedCategory("All");
                       setSelectedTag("All");
+                      setSelectedLevel("All");
                       setSort("newest");
                       setOnlyFavorites(false);
                       setPage(1);
@@ -625,7 +639,7 @@ export default function CatalogPage() {
                                       src={src}
                                       alt={lvl}
                                       title={lvl}
-                                      style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                                      style={{ width: 64, height: 64, borderRadius: 12 }}
                                     />
                                   ) : (
                                     <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
@@ -786,7 +800,7 @@ export default function CatalogPage() {
                                       src={src}
                                       alt={lvl}
                                       title={lvl}
-                                      style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                                      style={{ width: 64, height: 64, borderRadius: 12 }}
                                     />
                                   ) : (
                                     <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
