@@ -345,6 +345,22 @@ adminRouter.get("/products/stats", requireAdmin, async (_req, res) => {
   });
 });
 
+/* ------------------ MOST CLICKED BOTS ------------------ */
+adminRouter.get("/most-clicked", requireAdmin, async (_req, res) => {
+  const rows = await query<any>(
+    `
+    SELECT p.id, p.title, p.target_url, COALESCE(plc.clicks, 0) AS clicks, p.updated_at
+    FROM products p
+    JOIN product_link_clicks plc ON plc.product_id = p.id
+    WHERE p.status = 'published' AND plc.clicks > 0
+    ORDER BY plc.clicks DESC, p.updated_at DESC
+    LIMIT 10
+    `
+  );
+
+  res.json(rows);
+});
+
 /* ------------------ UPLOADS ------------------ */
 adminRouter.post("/uploads/image", requireAdmin, uploadImage.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "Missing file" });
