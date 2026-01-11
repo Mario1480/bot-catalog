@@ -143,6 +143,14 @@ function levelBadgeStyle(level: string): React.CSSProperties {
   return {};
 }
 
+function getLevelBadgeSrc(level: string): string {
+  const l = level.toLowerCase();
+  if (l.includes("beginner")) return "/level-badges/beginner.png";
+  if (l.includes("advanced")) return "/level-badges/advanced.png";
+  if (l.includes("expert")) return "/level-badges/expert.png";
+  return "";
+}
+
 function normalizeDescriptionHtml(input: string) {
   return (input || "").replace(
     /color\s*:\s*(#000000|#000|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)|black)\s*;?/gi,
@@ -594,8 +602,39 @@ export default function CatalogPage() {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
+                              position: "relative",
                             }}
                           >
+                            {levels.length ? (
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: 8,
+                                  right: 8,
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 6,
+                                  zIndex: 2,
+                                }}
+                              >
+                                {levels.map((lvl) => {
+                                  const src = getLevelBadgeSrc(lvl);
+                                  return src ? (
+                                    <img
+                                      key={lvl}
+                                      src={src}
+                                      alt={lvl}
+                                      title={lvl}
+                                      style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                                    />
+                                  ) : (
+                                    <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                                      {lvl}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
                             {img ? (
                               <img
                                 src={img}
@@ -726,18 +765,49 @@ export default function CatalogPage() {
 
                     {img ? (
                       <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
-                        <img
-                          src={img}
-                          alt={title}
-                          style={{
-                            width: "100%",
-                            maxWidth: 500,
-                            aspectRatio: "1 / 1",
-                            objectFit: "cover",
-                            borderRadius: 12,
-                            border: "1px solid var(--border)",
-                          }}
-                        />
+                        <div style={{ position: "relative", width: "100%", maxWidth: 500 }}>
+                          {levels.length ? (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 8,
+                                right: 8,
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 6,
+                                zIndex: 2,
+                              }}
+                            >
+                              {levels.map((lvl) => {
+                                const src = getLevelBadgeSrc(lvl);
+                                  return src ? (
+                                    <img
+                                      key={lvl}
+                                      src={src}
+                                      alt={lvl}
+                                      title={lvl}
+                                      style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                                    />
+                                  ) : (
+                                    <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                                      {lvl}
+                                    </span>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                          <img
+                            src={img}
+                            alt={title}
+                            style={{
+                              width: "100%",
+                              aspectRatio: "1 / 1",
+                              objectFit: "cover",
+                              borderRadius: 12,
+                              border: "1px solid var(--border)",
+                            }}
+                          />
+                        </div>
                       </div>
                     ) : null}
 

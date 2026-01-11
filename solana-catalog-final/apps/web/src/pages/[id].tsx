@@ -118,6 +118,14 @@ function levelBadgeStyle(level: string): React.CSSProperties {
   return {};
 }
 
+function getLevelBadgeSrc(level: string): string {
+  const l = level.toLowerCase();
+  if (l.includes("beginner")) return "/level-badges/beginner.png";
+  if (l.includes("advanced")) return "/level-badges/advanced.png";
+  if (l.includes("expert")) return "/level-badges/expert.png";
+  return "";
+}
+
 export default function ProductDetailPage() {
   const API = apiBase();
   const router = useRouter();
@@ -207,7 +215,43 @@ export default function ProductDetailPage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
               <div className="card" style={{ padding: 0, overflow: "hidden" }}>
                 {img ? (
-                  <img src={img} alt={product.title || "Product"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <div style={{ position: "relative" }}>
+                    {levels.length ? (
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 8,
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: 6,
+                          zIndex: 2,
+                        }}
+                      >
+                        {levels.map((lvl) => {
+                          const src = getLevelBadgeSrc(lvl);
+                          return src ? (
+                            <img
+                              key={lvl}
+                              src={src}
+                              alt={lvl}
+                              title={lvl}
+                              style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                            />
+                          ) : (
+                            <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                              {lvl}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <img
+                      src={img}
+                      alt={product.title || "Product"}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  </div>
                 ) : (
                   <div style={{ padding: 18, color: "var(--muted)" }}>No image</div>
                 )}
