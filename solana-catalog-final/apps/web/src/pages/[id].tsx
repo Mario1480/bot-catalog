@@ -236,7 +236,7 @@ export default function ProductDetailPage() {
                               src={src}
                               alt={lvl}
                               title={lvl}
-                              style={{ width: 64, height: 64, borderRadius: 12, border: "1px solid var(--border)" }}
+                              style={{ width: 64, height: 64, borderRadius: 12 }}
                             />
                           ) : (
                             <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
