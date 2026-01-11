@@ -383,8 +383,9 @@ adminRouter.get("/products", requireAdmin, async (req, res) => {
 
   const rows = await query<any>(
     `
-    SELECT p.id, p.title, p.status, p.target_url, p.updated_at
+    SELECT p.id, p.title, p.status, p.target_url, p.updated_at, COALESCE(plc.clicks, 0) AS clicks
     FROM products p
+    LEFT JOIN product_link_clicks plc ON plc.product_id = p.id
     WHERE ${where.join(" AND ")}
     ORDER BY p.updated_at DESC
     LIMIT $${values.length - 1} OFFSET $${values.length}

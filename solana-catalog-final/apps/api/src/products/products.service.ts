@@ -211,3 +211,20 @@ export async function removeFavorite(pubkey: string, productId: string) {
   if (!rows[0]) return { ok: false, removed: false };
   return { ok: true, removed: true };
 }
+
+export async function recordProductClick(productId: string) {
+  const exists = await query<{ id: string }>(`SELECT id FROM products WHERE id = $1`, [productId]);
+  if (!exists[0]) throw new Error("Product not found");
+
+  await query(
+    `
+    INSERT INTO product_link_clicks (product_id, clicks)
+    VALUES ($1, 1)
+    ON CONFLICT (product_id)
+    DO UPDATE SET clicks = product_link_clicks.clicks + 1, updated_at = now()
+    `,
+    [productId]
+  );
+
+  return { ok: true };
+}

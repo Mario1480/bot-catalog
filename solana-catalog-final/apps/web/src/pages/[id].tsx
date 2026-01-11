@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { AppHeader } from "../components/AppHeader";
 import { AppFooter } from "../components/AppFooter";
-import { apiFetch } from "../lib/api";
+import { apiFetch, apiBase } from "../lib/api";
 
 type Product = {
   id: string;
@@ -87,7 +87,39 @@ function normalizeDescriptionHtml(input: string) {
   );
 }
 
+function getLevels(p: Product | null): string[] {
+  if (!p) return [];
+  let fieldsObj: Record<string, any> | null = null;
+  if (p.fields && typeof p.fields === "object") fieldsObj = p.fields;
+  if (typeof p.fields === "string") {
+    try {
+      const parsed = JSON.parse(p.fields);
+      if (parsed && typeof parsed === "object") fieldsObj = parsed;
+    } catch {}
+  }
+  if (!fieldsObj) return [];
+  const v = fieldsObj.level;
+  if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+  if (v) return [String(v)];
+  return [];
+}
+
+function levelBadgeStyle(level: string): React.CSSProperties {
+  const l = level.toLowerCase();
+  if (l.includes("beginner")) {
+    return { borderColor: "rgba(76, 255, 166, .5)", background: "rgba(76, 255, 166, .12)", color: "#b9f9d6" };
+  }
+  if (l.includes("advanced")) {
+    return { borderColor: "rgba(255, 193, 7, .5)", background: "rgba(255, 193, 7, .12)", color: "#ffe29a" };
+  }
+  if (l.includes("expert")) {
+    return { borderColor: "rgba(255, 80, 80, .5)", background: "rgba(255, 80, 80, .12)", color: "#ffb1b1" };
+  }
+  return {};
+}
+
 export default function ProductDetailPage() {
+  const API = apiBase();
   const router = useRouter();
   const { id } = router.query;
 
@@ -130,6 +162,18 @@ export default function ProductDetailPage() {
   const img = useMemo(() => resolveImageSrc(product?.image_url || ""), [product]);
   const link = useMemo(() => resolveLink(product?.target_url || ""), [product]);
   const extra = useMemo(() => (product ? buildExtraFields(product) : []), [product]);
+  const levels = useMemo(() => getLevels(product), [product]);
+
+  function recordProductClick(productId: string) {
+    if (!productId || typeof window === "undefined") return;
+    const jwt = localStorage.getItem("user_jwt") || "";
+    if (!jwt) return;
+    fetch(`${API}/products/${productId}/click`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}` },
+      keepalive: true,
+    }).catch(() => {});
+  }
 
   return (
     <>
@@ -142,7 +186,13 @@ export default function ProductDetailPage() {
           </Link>
 
           {link ? (
-            <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
+            <a
+              className="btn btnPrimary"
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => product?.id && recordProductClick(product.id)}
+            >
               Open link
             </a>
           ) : null}
@@ -165,6 +215,15 @@ export default function ProductDetailPage() {
 
               <div>
                 <h1 style={{ margin: 0 }}>{product.title || "Untitled"}</h1>
+                {levels.length ? (
+                  <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {levels.map((lvl) => (
+                      <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                        {lvl}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
 
                 {product.description ? (
                   <div

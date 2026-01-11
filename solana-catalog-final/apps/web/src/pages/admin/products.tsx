@@ -8,6 +8,7 @@ type ProductRow = {
   status: string;
   target_url?: string;
   updated_at?: string;
+  clicks?: number;
 };
 
 function qp(name: string): string {
@@ -274,6 +275,9 @@ export default function AdminProductsList() {
                 <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
                   Updated
                 </th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 12 }}>
+                  Clicks
+                </th>
                 <th style={{ borderBottom: "1px solid var(--border)", padding: 12 }} />
               </tr>
             </thead>
@@ -284,6 +288,9 @@ export default function AdminProductsList() {
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>{p.status}</td>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
                     {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
+                  </td>
+                  <td style={{ padding: 12, borderBottom: "1px solid var(--border)" }}>
+                    {Number(p.clicks || 0)}
                   </td>
                   <td style={{ padding: 12, borderBottom: "1px solid var(--border)", textAlign: "right" }}>
                     <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
@@ -311,7 +318,7 @@ export default function AdminProductsList() {
 
               {items.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={4} style={{ padding: 14, opacity: 0.75 }}>
+                  <td colSpan={5} style={{ padding: 14, opacity: 0.75 }}>
                     No products found.
                   </td>
                 </tr>
@@ -319,7 +326,7 @@ export default function AdminProductsList() {
 
               {loading && (
                 <tr>
-                  <td colSpan={4} style={{ padding: 14, opacity: 0.75 }}>
+                  <td colSpan={5} style={{ padding: 14, opacity: 0.75 }}>
                     Loading…
                   </td>
                 </tr>
@@ -337,6 +344,9 @@ export default function AdminProductsList() {
               </div>
               <div className="adminMeta" style={{ marginTop: 6 }}>
                 {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
+              </div>
+              <div className="adminMeta" style={{ marginTop: 6 }}>
+                Clicks: {Number(p.clicks || 0)}
               </div>
               <div className="adminCardActions" style={{ marginTop: 10 }}>
                 <button

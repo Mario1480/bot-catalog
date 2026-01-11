@@ -43,6 +43,7 @@ export default function ProductEditor() {
   const [tags, setTags] = useState<string[]>([]);
   const [fields, setFields] = useState<KV[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
+  const [levels, setLevels] = useState<string[]>([]);
 
   const [catOptions, setCatOptions] = useState<Category[]>([]);
   const [catLoading, setCatLoading] = useState(true);
@@ -113,8 +114,12 @@ export default function ProductEditor() {
         const cats = all.filter((f) => f.key === "category").map((f) => f.value);
         setCategories(uniqStrings(cats));
 
-        // category NICHT doppelt in freien fields
-        setFields(all.filter((f) => f.key !== "category"));
+        // Levels aus fields ziehen (key === "level")
+        const lvls = all.filter((f) => f.key === "level").map((f) => f.value);
+        setLevels(uniqStrings(lvls));
+
+        // category/level NICHT doppelt in freien fields
+        setFields(all.filter((f) => f.key !== "category" && f.key !== "level"));
       } catch (e: any) {
         setErr(e?.message || "Load failed");
       }
@@ -154,9 +159,10 @@ export default function ProductEditor() {
     try {
       const cleanedFields = fields
         .map((f) => ({ key: (f.key || "").trim(), value: (f.value || "").trim() }))
-        .filter((f) => f.key && f.value && f.key !== "category"); // prevent category duplication
+        .filter((f) => f.key && f.value && f.key !== "category" && f.key !== "level"); // prevent duplication
 
       const cleanedCategories = uniqStrings(categories);
+      const cleanedLevels = uniqStrings(levels);
 
       const payload = {
         title,
@@ -168,6 +174,7 @@ export default function ProductEditor() {
         fields: [
           ...cleanedFields,
           ...cleanedCategories.map((c) => ({ key: "category", value: c })),
+          ...cleanedLevels.map((l) => ({ key: "level", value: l })),
         ],
       };
 
@@ -203,6 +210,15 @@ export default function ProductEditor() {
 
   function toggleCategory(name: string, checked: boolean) {
     setCategories((prev) => {
+      const set = new Set(prev);
+      if (checked) set.add(name);
+      else set.delete(name);
+      return Array.from(set);
+    });
+  }
+
+  function toggleLevel(name: string, checked: boolean) {
+    setLevels((prev) => {
       const set = new Set(prev);
       if (checked) set.add(name);
       else set.delete(name);
@@ -429,6 +445,25 @@ export default function ProductEditor() {
                 ))}
               </div>
             ) : null}
+          </div>
+
+          <div className="card" style={{ padding: 12 }}>
+            <div style={{ fontWeight: 800, marginBottom: 8 }}>Level</div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {["Beginner", "Advanced", "Expert"].map((lvl) => {
+                const checked = levels.includes(lvl);
+                return (
+                  <label key={lvl} style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => toggleLevel(lvl, e.target.checked)}
+                    />
+                    <span>{lvl}</span>
+                  </label>
+                );
+              })}
+            </div>
           </div>
 
           <div className="card" style={{ padding: 12 }}>

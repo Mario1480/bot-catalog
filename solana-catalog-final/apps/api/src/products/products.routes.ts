@@ -5,6 +5,7 @@ import {
   listFavoriteProductIds,
   addFavorite,
   removeFavorite,
+  recordProductClick,
 } from "./products.service.js";
 import { verifyUserJwt } from "../auth/jwt.js";
 import { getBlacklistEntry } from "../auth/blacklist.js";
@@ -66,6 +67,14 @@ productsRouter.delete("/:id([0-9a-fA-F-]{36})/favorite", requireUser, async (req
   if (!pubkey) return res.status(401).json({ error: "Invalid token" });
 
   res.json(await removeFavorite(pubkey, String(req.params.id)));
+});
+
+productsRouter.post("/:id([0-9a-fA-F-]{36})/click", requireUser, async (req, res) => {
+  try {
+    res.json(await recordProductClick(String(req.params.id)));
+  } catch (e: any) {
+    res.status(404).json({ error: e?.message || "Product not found" });
+  }
 });
 
 productsRouter.get("/", requireUser, async (req, res) => {

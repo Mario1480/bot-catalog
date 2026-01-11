@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppHeader } from "../components/AppHeader";
 import { AppFooter } from "../components/AppFooter";
-import { apiFetch } from "../lib/api";
+import { apiFetch, apiBase } from "../lib/api";
 
 type Product = {
   id: string;
@@ -111,6 +111,38 @@ function buildExtraFields(p: Product) {
   return deduped.slice(0, 50);
 }
 
+function getLevels(p: Product): string[] {
+  const raw = p.fields;
+  let fieldsObj: Record<string, any> | null = null;
+  if (raw && typeof raw === "object") fieldsObj = raw as Record<string, any>;
+  else if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") fieldsObj = parsed;
+    } catch {}
+  }
+
+  if (!fieldsObj) return [];
+  const v = fieldsObj.level;
+  if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+  if (v) return [String(v)];
+  return [];
+}
+
+function levelBadgeStyle(level: string): React.CSSProperties {
+  const l = level.toLowerCase();
+  if (l.includes("beginner")) {
+    return { borderColor: "rgba(76, 255, 166, .5)", background: "rgba(76, 255, 166, .12)", color: "#b9f9d6" };
+  }
+  if (l.includes("advanced")) {
+    return { borderColor: "rgba(255, 193, 7, .5)", background: "rgba(255, 193, 7, .12)", color: "#ffe29a" };
+  }
+  if (l.includes("expert")) {
+    return { borderColor: "rgba(255, 80, 80, .5)", background: "rgba(255, 80, 80, .12)", color: "#ffb1b1" };
+  }
+  return {};
+}
+
 function normalizeDescriptionHtml(input: string) {
   return (input || "").replace(
     /color\s*:\s*(#000000|#000|rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)|black)\s*;?/gi,
@@ -167,6 +199,7 @@ export default function CatalogPage() {
   const [needsAuth, setNeedsAuth] = useState<boolean>(() => !jwt);
 
   const lastJwtRef = useRef<string>(jwt || "");
+  const API = apiBase();
 
   const favoriteSet = useMemo(() => new Set(favoriteIds), [favoriteIds]);
 
@@ -361,6 +394,15 @@ export default function CatalogPage() {
     }
   }
 
+  function recordProductClick(productId: string) {
+    if (!jwt) return;
+    fetch(`${API}/products/${productId}/click`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}` },
+      keepalive: true,
+    }).catch(() => {});
+  }
+
   return (
     <>
       <AppHeader />
@@ -535,6 +577,7 @@ export default function CatalogPage() {
                       const img = resolveImageSrc(p.image_url || p.imageUrl || "");
                       const link = resolveLink(p.target_url || p.linkUrl || "");
                       const title = getProductName(p);
+                      const levels = getLevels(p);
 
                       return (
                         <div
@@ -566,6 +609,15 @@ export default function CatalogPage() {
 
                           <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
                             <div style={{ fontWeight: 900, fontSize: 16, lineHeight: 1.2 }}>{title}</div>
+                            {levels.length ? (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {levels.map((lvl) => (
+                                  <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                                    {lvl}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
 
                             <div style={{ display: "grid", gap: 10, marginTop: "auto" }}>
                               <button
@@ -590,6 +642,7 @@ export default function CatalogPage() {
                                   href={link}
                                   target="_blank"
                                   rel="noreferrer"
+                                  onClick={() => recordProductClick(p.id)}
                                   style={{ width: "100%" }}
                                 >
                                   Start Bot
@@ -629,6 +682,7 @@ export default function CatalogPage() {
               const img = resolveImageSrc(selectedProduct.image_url || selectedProduct.imageUrl || "");
               const link = resolveLink(selectedProduct.target_url || selectedProduct.linkUrl || "");
               const extra = buildExtraFields(selectedProduct);
+              const levels = getLevels(selectedProduct);
 
               return (
                 <div
@@ -655,7 +709,18 @@ export default function CatalogPage() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        <div style={{ fontWeight: 900, fontSize: 18 }}>{title}</div>
+                        {levels.length ? (
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {levels.map((lvl) => (
+                              <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
+                                {lvl}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                       <button className="btn" onClick={() => setSelectedProduct(null)}>✕</button>
                     </div>
 
@@ -722,7 +787,13 @@ export default function CatalogPage() {
                       </button>
 
                       {link ? (
-                        <a className="btn btnPrimary" href={link} target="_blank" rel="noreferrer">
+                        <a
+                          className="btn btnPrimary"
+                          href={link}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={() => recordProductClick(selectedProduct.id)}
+                        >
                           Start Bot
                         </a>
                       ) : (
