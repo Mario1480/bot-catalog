@@ -639,7 +639,7 @@ export default function CatalogPage() {
                                       src={src}
                                       alt={lvl}
                                       title={lvl}
-                                      style={{ width: 64, height: 64, borderRadius: 12 }}
+                                      style={{ width: 96, height: 96, borderRadius: 14 }}
                                     />
                                   ) : (
                                     <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
@@ -800,7 +800,7 @@ export default function CatalogPage() {
                                       src={src}
                                       alt={lvl}
                                       title={lvl}
-                                      style={{ width: 64, height: 64, borderRadius: 12 }}
+                                      style={{ width: 96, height: 96, borderRadius: 14 }}
                                     />
                                   ) : (
                                     <span key={lvl} className="badge" style={levelBadgeStyle(lvl)}>
