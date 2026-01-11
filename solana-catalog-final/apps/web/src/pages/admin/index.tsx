@@ -31,6 +31,14 @@ type UserAnalyticsResp = {
   d30: AnalyticsBucket;
 };
 
+type MostClickedRow = {
+  id: string;
+  title: string;
+  target_url?: string;
+  clicks: number;
+  updated_at?: string;
+};
+
 type GatePreview = {
   enabled: boolean;
   mode: "amount" | "usd" | "none";
@@ -104,6 +112,7 @@ export default function AdminDashboardPage() {
   const [status, setStatus] = useState<StatusResp | null>(null);
   const [ua, setUa] = useState<UserAnalyticsResp | null>(null);
   const [gate, setGate] = useState<GatePreview | null>(null);
+  const [mostClicked, setMostClicked] = useState<MostClickedRow[]>([]);
 
   const [err, setErr] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -112,11 +121,12 @@ export default function AdminDashboardPage() {
     setErr("");
     setLoading(true);
     try {
-      const [s1, s2, s3, s4] = await Promise.all([
+      const [s1, s2, s3, s4, s5] = await Promise.all([
         apiFetch("/admin/products/stats", { method: "GET" }, token),
         apiFetch("/admin/status", { method: "GET" }, token),
         apiFetch("/admin/user-analytics", { method: "GET" }, token),
         apiFetch("/admin/gate-preview", { method: "GET" }, token),
+        apiFetch("/admin/most-clicked", { method: "GET" }, token),
       ]);
 
       setStats({
@@ -127,6 +137,7 @@ export default function AdminDashboardPage() {
       setStatus(s2 as StatusResp);
       setUa(s3 as UserAnalyticsResp);
       setGate(s4 as GatePreview);
+      setMostClicked(Array.isArray(s5) ? s5 : []);
     } catch (e: any) {
       setErr(e?.message || "Failed to load dashboard");
     } finally {
@@ -340,6 +351,64 @@ export default function AdminDashboardPage() {
           <div style={{ marginTop: 10, color: "var(--muted)", fontSize: 12 }}>
             Tip: These counters are updated during wallet verify (attempts/allowed/blocked + unique wallets via Redis HLL).
           </div>
+        </div>
+
+        {/* Most clicked bots */}
+        <div className="card" style={{ padding: 16 }}>
+          <div style={{ fontWeight: 900, marginBottom: 10 }}>Most clicked bots</div>
+
+          {loading ? (
+            <div style={{ color: "var(--muted)" }}>Loading…</div>
+          ) : mostClicked.length === 0 ? (
+            <div style={{ color: "var(--muted)" }}>No clicks recorded yet.</div>
+          ) : (
+            <>
+              <div className="adminTableWrap">
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 10 }}>
+                        Bot
+                      </th>
+                      <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 10 }}>
+                        Clicks
+                      </th>
+                      <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 10 }}>
+                        Updated
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mostClicked.map((b) => (
+                      <tr key={b.id}>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>{b.title}</td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>
+                          {Number(b.clicks || 0)}
+                        </td>
+                        <td style={{ padding: 10, borderBottom: "1px solid var(--border)" }}>
+                          {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="adminCards" style={{ marginTop: 12 }}>
+                {mostClicked.map((b) => (
+                  <div key={b.id} className="card adminCard">
+                    <div style={{ fontWeight: 900 }}>{b.title}</div>
+                    <div className="adminMeta" style={{ marginTop: 6 }}>
+                      Clicks: {Number(b.clicks || 0)}
+                    </div>
+                    <div className="adminMeta" style={{ marginTop: 6 }}>
+                      {b.updated_at ? new Date(b.updated_at).toLocaleString() : "-"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </AdminLayout>
