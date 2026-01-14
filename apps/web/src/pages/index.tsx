@@ -228,7 +228,7 @@ export default function Home() {
               <h1 style={{ margin: 0, fontSize: 34, letterSpacing: -0.5 }}>uTrade Bot Catalog</h1>
 
               <p style={{ marginTop: 10, color: "var(--muted)", lineHeight: 1.5 }}>
-                Beta v0.1
+                Beta v1.0
               </p>
 
               <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
