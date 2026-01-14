@@ -202,7 +202,7 @@ export default function AdminDashboardPage() {
                 Manage token gating, categories, products, blacklist, CSV and admins.
               </div>
               <div style={{ marginTop: 8 }}>
-                <span className="badge">Beta v0.1</span>
+                <span className="badge">Beta v1.0</span>
               </div>
             </div>
 
