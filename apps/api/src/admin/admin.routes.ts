@@ -283,6 +283,59 @@ adminRouter.delete("/blacklist/:id([0-9a-fA-F-]{36})", requireAdmin, async (req,
   res.json({ ok: true });
 });
 
+/* ------------------ WALLET ALLOWLIST ------------------ */
+adminRouter.get("/allowlist", requireAdmin, async (req, res) => {
+  const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const values: any[] = [];
+  const where: string[] = ["1=1"];
+
+  if (search) {
+    values.push(`%${search}%`);
+    where.push(`(pubkey ILIKE $${values.length} OR reason ILIKE $${values.length})`);
+  }
+
+  const rows = await query<any>(
+    `
+    SELECT id, pubkey, reason, created_at, updated_at
+    FROM wallet_allowlist
+    WHERE ${where.join(" AND ")}
+    ORDER BY created_at DESC
+    `,
+    values
+  );
+
+  res.json(rows);
+});
+
+adminRouter.post("/allowlist", requireAdmin, async (req, res) => {
+  const pubkey = String(req.body?.pubkey ?? "").trim();
+  const reason = String(req.body?.reason ?? "").trim();
+  if (!pubkey) return res.status(400).json({ error: "pubkey is required" });
+
+  const rows = await query<any>(
+    `
+    INSERT INTO wallet_allowlist (pubkey, reason)
+    VALUES ($1, $2)
+    ON CONFLICT (pubkey)
+    DO UPDATE SET reason = EXCLUDED.reason, updated_at = now()
+    RETURNING id, pubkey, reason, created_at, updated_at
+    `,
+    [pubkey, reason]
+  );
+
+  res.json(rows[0]);
+});
+
+adminRouter.delete("/allowlist/:id([0-9a-fA-F-]{36})", requireAdmin, async (req, res) => {
+  const id = String(req.params.id || "");
+  if (!id) return res.status(400).json({ error: "Missing id" });
+
+  const rows = await query<any>(`DELETE FROM wallet_allowlist WHERE id = $1 RETURNING id`, [id]);
+  if (!rows[0]) return res.status(404).json({ error: "Not found" });
+
+  res.json({ ok: true });
+});
+
 /* ------------------ USER ANALYTICS (Redis counters) ------------------ */
 adminRouter.get("/user-analytics", requireAdmin, async (_req, res) => {
   async function safeGet(key: string): Promise<number> {

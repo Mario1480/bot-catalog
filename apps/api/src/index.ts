@@ -11,6 +11,7 @@ import { decideGate, getGateConfig } from "./gate/gate.js";
 import { getUsdPriceFromCoinGecko } from "./gate/coingecko.js";
 import { signUserJwt } from "./auth/jwt.js";
 import { getBlacklistEntry } from "./auth/blacklist.js";
+import { getAllowlistEntry } from "./auth/allowlist.js";
 
 import { productsRouter } from "./products/products.routes.js";
 import { adminRouter } from "./admin/admin.routes.js";
@@ -192,6 +193,16 @@ app.post("/auth/verify", async (req, res) => {
     const reason = blacklist.reason?.trim() || "Wallet blacklisted";
     await trackUserAnalytics(String(pubkey), false);
     return res.status(403).json({ error: reason, details: { allowed: false, reason } });
+  }
+
+  const allowlist = await getAllowlistEntry(String(pubkey));
+  if (allowlist) {
+    await trackUserAnalytics(String(pubkey), true);
+    const jwt = signUserJwt(String(pubkey));
+    return res.json({
+      token: jwt,
+      details: { allowed: true, reason: "OK", balance: 0, source: "allowlist" },
+    });
   }
 
   const decision = await decideGate(String(pubkey));

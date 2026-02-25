@@ -70,6 +70,7 @@ export function AdminLayout({
               { href: "/admin/categories", label: "Categories" },
               { href: "/admin/products", label: "Products" },
               { href: "/admin/blacklist", label: "Blacklist" },
+              { href: "/admin/allowlist", label: "Allowlist" },
               { href: "/admin/admins", label: "Admins" },
             ].map((item) => {
               const active = isActive(pathname, item.href);
