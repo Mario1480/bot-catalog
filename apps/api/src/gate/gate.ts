@@ -47,7 +47,12 @@ export async function decideGate(pubkey: string): Promise<GateDecision> {
   if (cfg.min_usd === null) return { allowed: false, reason: "Gate thresholds not configured" };
 
   const requiredUsd = Number(cfg.min_usd);
-  const tol = Number(cfg.tolerance_percent) / 100;
+  if (!Number.isFinite(requiredUsd) || requiredUsd <= 0) {
+    return { allowed: false, reason: "Gate thresholds not configured" };
+  }
+
+  const tolPct = Number(cfg.tolerance_percent);
+  const tol = Number.isFinite(tolPct) && tolPct > 0 ? tolPct / 100 : 0;
 
   const priceUsd = await getUsdPriceFromCoinGecko({
     mode: cfg.coingecko_mode,
@@ -65,8 +70,10 @@ export async function decideGate(pubkey: string): Promise<GateDecision> {
   );
   const lastStatus = stateRows[0]?.last_status ?? false;
 
-  const unlockThreshold = requiredUsd * (1 + tol);
-  const lockThreshold = requiredUsd * (1 - tol);
+  // English comment: Unlock at configured minimum; tolerance only widens re-lock threshold.
+  // This keeps onboarding intuitive while still preventing flapping after unlock.
+  const unlockThreshold = requiredUsd;
+  const lockThreshold = Math.max(0, requiredUsd * (1 - tol));
 
   const allowed = lastStatus ? usdValue >= lockThreshold : usdValue >= unlockThreshold;
 
